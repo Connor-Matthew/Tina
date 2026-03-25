@@ -3,23 +3,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { registerIpcHandlers } from './ipc'
+import { createWindowOptions } from './windowConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 function createMainWindow(): BrowserWindow {
-  const window = new BrowserWindow({
-    width: 1360,
-    height: 880,
-    minWidth: 1100,
-    minHeight: 720,
-    title: 'Tina',
-    backgroundColor: '#ffffff',
-    webPreferences: {
-      preload: join(__dirname, 'index.mjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
+  const window = new BrowserWindow(createWindowOptions(__dirname))
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void window.loadURL(process.env.VITE_DEV_SERVER_URL)

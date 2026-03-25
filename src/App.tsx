@@ -5,9 +5,13 @@ import { Composer } from './renderer/components/Composer'
 import { ConversationView } from './renderer/components/ConversationView'
 import { SettingsPanel } from './renderer/components/SettingsPanel'
 import { Sidebar } from './renderer/components/Sidebar'
+import { downloadConversationMarkdown } from './renderer/lib/conversationExport'
 import { getDesktopApi } from './renderer/lib/electron'
 import { createChatStore } from './renderer/store/chatStore'
 import type { AppSettings } from './shared/contracts'
+
+type AppView = 'chat' | 'settings'
+type SettingsSection = 'general' | 'provider' | 'conversation'
 
 const chatStore = createChatStore()
 const desktop = getDesktopApi()
@@ -22,7 +26,8 @@ const fallbackSettings: AppSettings = {
 function App() {
   const [chatState, setChatState] = useState(chatStore.getState())
   const [settings, setSettings] = useState<AppSettings>(fallbackSettings)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [view, setView] = useState<AppView>('chat')
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('general')
   const [searchValue, setSearchValue] = useState('')
 
   useEffect(() => {
@@ -62,48 +67,80 @@ function App() {
   async function handleSaveSettings() {
     const nextSettings = await desktop.updateSettings(settings)
     setSettings(nextSettings)
-    setIsSettingsOpen(false)
+  }
+
+  function openSettings(section: SettingsSection = 'general') {
+    setActiveSettingsSection(section)
+    setView('settings')
   }
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        conversations={visibleConversations}
-        activeConversationId={chatState.activeConversationId}
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        onCreateConversation={() => {
-          chatStore.getState().clearError()
-          chatStore.getState().createConversation()
-        }}
-        onSelectConversation={(conversationId) => {
-          chatStore.getState().selectConversation(conversationId)
-        }}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
+    <div className="app-frame">
+      <div className="app-shell no-drag">
+        <div className="app-drag-region" data-testid="window-drag-region" />
 
-      <main className="workspace">
-        <ConversationView
-          conversation={activeConversation}
-          isSending={chatState.isSending}
-          error={chatState.error}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+        <Sidebar
+          conversations={visibleConversations}
+          activeConversationId={chatState.activeConversationId}
+          searchValue={searchValue}
+          mode={view === 'settings' ? 'settings' : 'conversations'}
+          activeSettingsSection={activeSettingsSection}
+          onSearchChange={setSearchValue}
+          onCreateConversation={() => {
+            chatStore.getState().clearError()
+            chatStore.getState().createConversation()
+            setView('chat')
+          }}
+          onSelectConversation={(conversationId) => {
+            chatStore.getState().selectConversation(conversationId)
+            setView('chat')
+          }}
+          onRenameConversation={(conversationId, title) => {
+            chatStore.getState().renameConversation(conversationId, title)
+          }}
+          onDeleteConversation={(conversationId) => {
+            chatStore.getState().deleteConversation(conversationId)
+          }}
+          onExportConversation={(conversationId) => {
+            const conversation = chatStore
+              .getState()
+              .conversations.find((item) => item.id === conversationId)
+
+            if (conversation) {
+              downloadConversationMarkdown(conversation)
+            }
+          }}
+          onOpenSettings={() => openSettings()}
+          onSettingsSectionChange={setActiveSettingsSection}
+          onBackToChat={() => setView('chat')}
         />
-        <Composer disabled={chatState.isSending} onSend={handleSend} />
-      </main>
 
-      <SettingsPanel
-        open={isSettingsOpen}
-        settings={settings}
-        onClose={() => setIsSettingsOpen(false)}
-        onChange={(field, value) => {
-          setSettings((current) => ({
-            ...current,
-            [field]: value,
-          }))
-        }}
-        onSave={handleSaveSettings}
-      />
+        <main className="workspace">
+          {view === 'chat' ? (
+            <>
+              <ConversationView
+                conversation={activeConversation}
+                isSending={chatState.isSending}
+                error={chatState.error}
+                onOpenSettings={() => openSettings('provider')}
+              />
+              <Composer disabled={chatState.isSending} onSend={handleSend} />
+            </>
+          ) : (
+            <SettingsPanel
+              activeSection={activeSettingsSection}
+              settings={settings}
+              onChange={(field, value) => {
+                setSettings((current) => ({
+                  ...current,
+                  [field]: value,
+                }))
+              }}
+              onSave={handleSaveSettings}
+            />
+          )}
+        </main>
+      </div>
     </div>
   )
 }

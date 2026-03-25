@@ -1,118 +1,111 @@
-import { BrowserWindow, app, ipcMain } from "electron";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
+import { BrowserWindow as e, app as t, ipcMain as n } from "electron";
+import { dirname as r, join as i } from "node:path";
+import { fileURLToPath as a } from "node:url";
+import { createRequire as o } from "node:module";
 //#region src/main/openai.ts
-function normalizeBaseUrl(baseUrl) {
-	return baseUrl.replace(/\/+$/, "");
+function s(e) {
+	return e.replace(/\/+$/, "");
 }
-function buildChatRequest(settings, messages) {
-	const payloadMessages = [];
-	if (settings.systemPrompt.trim()) payloadMessages.push({
+function c(e, t) {
+	let n = [];
+	e.systemPrompt.trim() && n.push({
 		role: "system",
-		content: settings.systemPrompt.trim()
+		content: e.systemPrompt.trim()
 	});
-	for (const message of messages) payloadMessages.push({
-		role: message.role,
-		content: message.content
+	for (let e of t) n.push({
+		role: e.role,
+		content: e.content
 	});
 	return {
-		model: settings.model,
-		messages: payloadMessages
+		model: e.model,
+		messages: n
 	};
 }
-async function sendChatRequest(settings, messages, fetchImpl = fetch) {
-	if (!settings.apiKey.trim()) throw new Error("API key is required before sending a message.");
-	const response = await fetchImpl(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+async function l(e, t, n = fetch) {
+	if (!e.apiKey.trim()) throw Error("API key is required before sending a message.");
+	let r = await n(`${s(e.baseUrl)}/chat/completions`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: `Bearer ${settings.apiKey}`
+			Authorization: `Bearer ${e.apiKey}`
 		},
-		body: JSON.stringify(buildChatRequest(settings, messages))
-	});
-	const data = await response.json();
-	if (!response.ok) throw new Error(data.error?.message ?? "The chat request failed.");
-	const content = data.choices?.[0]?.message?.content?.trim();
-	if (!content) throw new Error("The model response was empty.");
-	return content;
+		body: JSON.stringify(c(e, t))
+	}), i = await r.json();
+	if (!r.ok) throw Error(i.error?.message ?? "The chat request failed.");
+	let a = i.choices?.[0]?.message?.content?.trim();
+	if (!a) throw Error("The model response was empty.");
+	return a;
 }
 //#endregion
 //#region src/main/settings.ts
-var defaultSettings = {
+var u = {
 	apiKey: "",
 	baseUrl: "https://api.openai.com/v1",
 	model: "gpt-4o-mini",
 	systemPrompt: ""
-};
-var require = createRequire(import.meta.url);
-function mergeSettings(partial) {
+}, d = o(import.meta.url);
+function f(e) {
 	return {
-		...defaultSettings,
-		...partial,
-		baseUrl: (partial?.baseUrl ?? defaultSettings.baseUrl).replace(/\/+$/, "")
+		...u,
+		...e,
+		baseUrl: (e?.baseUrl ?? u.baseUrl).replace(/\/+$/, "")
 	};
 }
-var SettingsStore = class {
+//#endregion
+//#region src/main/ipc.ts
+var p = new class {
 	store;
 	constructor() {
-		const ElectronStore = require("electron-store").default;
-		this.store = new ElectronStore({
+		let e = d("electron-store").default;
+		this.store = new e({
 			name: "settings",
-			defaults: { settings: defaultSettings }
+			defaults: { settings: u }
 		});
 	}
 	get() {
-		return mergeSettings(this.store.get("settings"));
+		return f(this.store.get("settings"));
 	}
-	set(next) {
-		const merged = mergeSettings({
+	set(e) {
+		let t = f({
 			...this.get(),
-			...next
+			...e
 		});
-		this.store.set("settings", merged);
-		return merged;
+		return this.store.set("settings", t), t;
 	}
-};
-//#endregion
-//#region src/main/ipc.ts
-var settingsStore = new SettingsStore();
-function registerIpcHandlers() {
-	ipcMain.handle("settings:get", () => settingsStore.get());
-	ipcMain.handle("settings:update", (_event, next) => settingsStore.set(next));
-	ipcMain.handle("chat:send", async (_event, messages) => {
-		return sendChatRequest(settingsStore.get(), messages);
-	});
+}();
+function m() {
+	n.handle("settings:get", () => p.get()), n.handle("settings:update", (e, t) => p.set(t)), n.handle("chat:send", async (e, t) => l(p.get(), t));
 }
 //#endregion
-//#region src/main/index.ts
-var __dirname = dirname(fileURLToPath(import.meta.url));
-function createMainWindow() {
-	const window = new BrowserWindow({
+//#region src/main/windowConfig.ts
+function h(e) {
+	return {
 		width: 1360,
 		height: 880,
 		minWidth: 1100,
 		minHeight: 720,
-		title: "Tina",
+		title: "",
+		titleBarStyle: "hiddenInset",
 		backgroundColor: "#ffffff",
 		webPreferences: {
-			preload: join(__dirname, "index.mjs"),
-			contextIsolation: true,
-			nodeIntegration: false
+			preload: i(e, "index.mjs"),
+			contextIsolation: !0,
+			nodeIntegration: !1
 		}
-	});
-	if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
-	else window.loadFile(join(__dirname, "../index.html"));
-	return window;
+	};
 }
-app.whenReady().then(() => {
-	registerIpcHandlers();
-	createMainWindow();
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+//#endregion
+//#region src/main/index.ts
+var g = r(a(import.meta.url));
+function _() {
+	let t = new e(h(g));
+	return process.env.VITE_DEV_SERVER_URL ? t.loadURL(process.env.VITE_DEV_SERVER_URL) : t.loadFile(i(g, "../index.html")), t;
+}
+t.whenReady().then(() => {
+	m(), _(), t.on("activate", () => {
+		e.getAllWindows().length === 0 && _();
 	});
-});
-app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") app.quit();
+}), t.on("window-all-closed", () => {
+	process.platform !== "darwin" && t.quit();
 });
 //#endregion

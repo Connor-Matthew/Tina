@@ -1,14 +1,1 @@
-let electron = require("electron");
-//#region src/preload/index.ts
-electron.contextBridge.exposeInMainWorld("desktop", {
-	getSettings() {
-		return electron.ipcRenderer.invoke("settings:get");
-	},
-	updateSettings(next) {
-		return electron.ipcRenderer.invoke("settings:update", next);
-	},
-	sendChat(messages) {
-		return electron.ipcRenderer.invoke("chat:send", messages);
-	}
-});
-//#endregion
+let e=require(`electron`);e.contextBridge.exposeInMainWorld(`desktop`,{getSettings(){return e.ipcRenderer.invoke(`settings:get`)},updateSettings(t){return e.ipcRenderer.invoke(`settings:update`,t)},sendChat(t){return e.ipcRenderer.invoke(`chat:send`,t)}});

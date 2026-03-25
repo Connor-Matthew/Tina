@@ -9,6 +9,8 @@ interface ChatState {
   error: string | null
   createConversation: () => string
   selectConversation: (conversationId: string) => void
+  renameConversation: (conversationId: string, title: string) => void
+  deleteConversation: (conversationId: string) => void
   clearError: () => void
   sendMessage: (
     content: string,
@@ -52,6 +54,34 @@ export function createChatStore() {
     },
     selectConversation: (conversationId) => {
       set({ activeConversationId: conversationId })
+    },
+    renameConversation: (conversationId, title) => {
+      const trimmed = title.trim()
+      if (!trimmed) {
+        return
+      }
+
+      set((state) => ({
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === conversationId ? { ...conversation, title: trimmed } : conversation,
+        ),
+      }))
+    },
+    deleteConversation: (conversationId) => {
+      set((state) => {
+        const nextConversations = state.conversations.filter(
+          (conversation) => conversation.id !== conversationId,
+        )
+
+        if (state.activeConversationId !== conversationId) {
+          return { conversations: nextConversations }
+        }
+
+        return {
+          conversations: nextConversations,
+          activeConversationId: nextConversations[0]?.id ?? null,
+        }
+      })
     },
     clearError: () => {
       set({ error: null })
