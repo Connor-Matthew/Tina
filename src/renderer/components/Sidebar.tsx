@@ -2,20 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Conversation } from '../../shared/contracts'
 
-type SettingsSection = 'general' | 'provider' | 'conversation'
-
-const settingsSectionLabels: Record<SettingsSection, string> = {
-  general: '通用',
-  provider: '供应商',
-  conversation: '对话设置',
-}
-
 interface SidebarProps {
   conversations: Conversation[]
   activeConversationId: string | null
   searchValue: string
   mode?: 'conversations' | 'settings'
-  activeSettingsSection?: SettingsSection
   onSearchChange: (value: string) => void
   onCreateConversation: () => void
   onSelectConversation: (conversationId: string) => void
@@ -23,7 +14,6 @@ interface SidebarProps {
   onDeleteConversation: (conversationId: string) => void
   onExportConversation: (conversationId: string) => void
   onOpenSettings: () => void
-  onSettingsSectionChange?: (section: SettingsSection) => void
   onBackToChat?: () => void
 }
 
@@ -32,7 +22,6 @@ export function Sidebar({
   activeConversationId,
   searchValue,
   mode = 'conversations',
-  activeSettingsSection = 'general',
   onSearchChange,
   onCreateConversation,
   onSelectConversation,
@@ -40,7 +29,6 @@ export function Sidebar({
   onDeleteConversation,
   onExportConversation,
   onOpenSettings,
-  onSettingsSectionChange,
   onBackToChat,
 }: SidebarProps) {
   const [menuConversationId, setMenuConversationId] = useState<string | null>(null)
@@ -81,23 +69,11 @@ export function Sidebar({
           <div className="sidebar__top sidebar__top--settings">
             <div>
               <p className="sidebar__eyebrow">应用设置</p>
-              <h1 className="sidebar__title">设置导航</h1>
+              <h1 className="sidebar__title">设置</h1>
             </div>
-            <p className="sidebar__settings-copy">在左侧切换分组，右侧查看和编辑当前分组的详细设置。</p>
           </div>
 
-          <nav className="sidebar__settings-nav" aria-label="设置分组">
-            {(Object.keys(settingsSectionLabels) as SettingsSection[]).map((section) => (
-              <button
-                key={section}
-                type="button"
-                className={`sidebar__settings-nav-item${activeSettingsSection === section ? ' sidebar__settings-nav-item--active' : ''}`}
-                onClick={() => onSettingsSectionChange?.(section)}
-              >
-                <span className="sidebar__settings-nav-label">{settingsSectionLabels[section]}</span>
-              </button>
-            ))}
-          </nav>
+          <div className="sidebar__settings-nav" />
 
           <div className="sidebar__bottom sidebar__bottom--settings">
             <button className="settings-panel__close" onClick={onBackToChat}>

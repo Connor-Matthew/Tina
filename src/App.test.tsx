@@ -52,10 +52,6 @@ function getSidebarSettingsButton(container: HTMLElement) {
   return within(sidebarBottom as HTMLElement).getByRole('button', { name: '打开设置' })
 }
 
-function getSettingsNavigation() {
-  return screen.getByRole('navigation', { name: '设置分组' })
-}
-
 function getConversationList(container: HTMLElement) {
   return container.querySelector('.sidebar__list')
 }
@@ -366,7 +362,7 @@ describe('App', () => {
     expect(screen.getByText('return')).toBeInTheDocument()
   })
 
-  it('switches the left sidebar into settings navigation mode', async () => {
+  it('switches the left sidebar into settings mode', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
@@ -374,25 +370,17 @@ describe('App', () => {
 
     await user.click(getSidebarSettingsButton(container))
 
-    const navigation = getSettingsNavigation()
-
-    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { name: '设置' }).length).toBeGreaterThanOrEqual(1)
     expect(getConversationList(container)).toBeNull()
-    expect(within(navigation).getByRole('button', { name: '通用' })).toBeInTheDocument()
-    expect(within(navigation).getByRole('button', { name: '供应商' })).toBeInTheDocument()
-    expect(within(navigation).getByRole('button', { name: '对话设置' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '设置首页' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '连接设置' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '模型与行为' })).toBeInTheDocument()
   })
 
-  it('shows only the active settings section details on the right', async () => {
+  it('fills in settings fields and saves them', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
-    await user.click(within(getSettingsNavigation()).getByRole('button', { name: '供应商' }))
-
-    expect(screen.getByRole('heading', { name: '模型供应商' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: '设置首页' })).not.toBeInTheDocument()
 
     const apiKeyInput = screen.getByLabelText('API Key')
     const baseUrlInput = screen.getByLabelText('Base URL')
@@ -420,7 +408,6 @@ describe('App', () => {
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
-    await user.click(within(getSettingsNavigation()).getByRole('button', { name: '供应商' }))
 
     const apiKeyInput = screen.getByLabelText('API Key')
     const baseUrlInput = screen.getByLabelText('Base URL')
@@ -439,7 +426,7 @@ describe('App', () => {
       systemPrompt: '',
     })
 
-    await user.click(await screen.findByRole('button', { name: '选择模型 gpt-4.1' }))
+    await user.click(await screen.findByRole('option', { name: 'gpt-4.1' }))
     expect(screen.getByLabelText('Model')).toHaveValue('gpt-4.1')
 
     await user.click(screen.getByRole('button', { name: '保存设置' }))
@@ -452,19 +439,17 @@ describe('App', () => {
     })
   })
 
-  it('switches to conversation settings and returns to chat', async () => {
+  it('shows system prompt in settings and returns to chat', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
-    await user.click(within(getSettingsNavigation()).getByRole('button', { name: '对话设置' }))
 
     expect(screen.getByLabelText('System Prompt')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '返回聊天' }))
 
     expect(getConversationList(container)).not.toBeNull()
-    expect(screen.queryByRole('navigation', { name: '设置分组' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'New thread' })).toBeInTheDocument()
   })
 })

@@ -11,7 +11,6 @@ import { createChatStore } from './renderer/store/chatStore'
 import type { AppSettings, ChatComposerSubmission } from './shared/contracts'
 
 type AppView = 'chat' | 'settings'
-type SettingsSection = 'general' | 'provider' | 'conversation'
 
 const desktop = getDesktopApi()
 
@@ -42,7 +41,6 @@ function App() {
   const [isDetectingModels, setIsDetectingModels] = useState(false)
   const [modelDetectionError, setModelDetectionError] = useState<string | null>(null)
   const [view, setView] = useState<AppView>('chat')
-  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSection>('general')
   const [searchValue, setSearchValue] = useState('')
 
   useEffect(() => {
@@ -131,8 +129,7 @@ function App() {
     }
   }
 
-  function openSettings(section: SettingsSection = 'general') {
-    setActiveSettingsSection(section)
+  function openSettings() {
     setView('settings')
   }
 
@@ -149,7 +146,6 @@ function App() {
           activeConversationId={chatState.activeConversationId}
           searchValue={searchValue}
           mode={view === 'settings' ? 'settings' : 'conversations'}
-          activeSettingsSection={activeSettingsSection}
           onSearchChange={setSearchValue}
           onCreateConversation={async () => {
             chatStore.getState().clearError()
@@ -176,7 +172,6 @@ function App() {
             }
           }}
           onOpenSettings={() => openSettings()}
-          onSettingsSectionChange={setActiveSettingsSection}
           onBackToChat={() => setView('chat')}
         />
 
@@ -187,7 +182,7 @@ function App() {
                 conversation={activeConversation}
                 isSending={chatState.isSending}
                 error={chatState.error}
-                onOpenSettings={() => openSettings('provider')}
+                onOpenSettings={() => openSettings()}
               />
               <Composer
                 disabled={chatState.isSending}
@@ -204,7 +199,6 @@ function App() {
             </>
           ) : (
             <SettingsPanel
-              activeSection={activeSettingsSection}
               detectedModels={detectedModels}
               hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
