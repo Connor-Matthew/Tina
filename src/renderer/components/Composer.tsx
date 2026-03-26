@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatComposerSubmission,
 } from '../../shared/contracts'
+import { getDesktopApi } from '../lib/electron'
 
 interface ComposerProps {
   disabled: boolean
@@ -26,6 +27,15 @@ function normalizeFiles(files: FileList): ChatAttachment[] {
     name: file.name,
     kind: file.type.startsWith('image/') ? 'image' : 'file',
   }))
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
 }
 
 export function Composer({
@@ -178,13 +188,25 @@ export function Composer({
                 aria-label="添加照片和文件"
                 className="sr-only"
                 multiple
-                onChange={(event) => {
+                onChange={async (event) => {
                   const files = event.target.files
                   if (!files?.length) {
                     return
                   }
 
-                  setAttachments((current) => [...current, ...normalizeFiles(files)])
+                  const newAttachments = normalizeFiles(files)
+                  const desktop = getDesktopApi()
+
+                  for (let i = 0; i < newAttachments.length; i++) {
+                    const attachment = newAttachments[i]
+                    const file = files[i]
+                    if (attachment.kind === 'image') {
+                      const dataUrl = await readFileAsDataUrl(file)
+                      await desktop.storeAttachment(attachment.id, attachment.name, dataUrl)
+                    }
+                  }
+
+                  setAttachments((current) => [...current, ...newAttachments])
                   event.target.value = ''
                 }}
                 ref={fileInputRef}

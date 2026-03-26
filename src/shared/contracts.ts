@@ -11,6 +11,7 @@ export interface ChatAttachment {
   id: string
   name: string
   kind: 'image' | 'file'
+  dataUrl?: string
 }
 
 export interface ChatMessage {
@@ -40,6 +41,8 @@ export interface DesktopApi {
   renameConversation(conversationId: string, title: string): Promise<Conversation>
   deleteConversation(conversationId: string): Promise<void>
   createMessage(conversationId: string, message: ChatMessage): Promise<void>
+  storeAttachment(id: string, name: string, dataUrl: string): Promise<void>
+  readAttachment(id: string): Promise<string>
   sendChat(messages: ChatMessage[]): Promise<string>
   streamChat(
     messages: ChatMessage[],

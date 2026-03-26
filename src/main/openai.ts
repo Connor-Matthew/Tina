@@ -2,7 +2,13 @@ import type { AppSettings, ChatMessage } from '../shared/contracts'
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | OpenAIContentPart[]
+}
+
+interface OpenAIContentPart {
+  type: 'text' | 'image_url'
+  text?: string
+  image_url?: { url: string }
 }
 
 interface OpenAIResponse {
@@ -48,10 +54,26 @@ export function buildChatRequest(
   }
 
   for (const message of messages) {
-    payloadMessages.push({
-      role: message.role,
-      content: formatMessageContent(message),
-    })
+    const imageAttachments = (message.attachments ?? []).filter(
+      (att) => att.kind === 'image' && att.dataUrl,
+    )
+
+    if (imageAttachments.length > 0) {
+      const parts: OpenAIContentPart[] = []
+      const textContent = formatMessageContent(message)
+      if (textContent) {
+        parts.push({ type: 'text', text: textContent })
+      }
+      for (const att of imageAttachments) {
+        parts.push({ type: 'image_url', image_url: { url: att.dataUrl! } })
+      }
+      payloadMessages.push({ role: message.role, content: parts })
+    } else {
+      payloadMessages.push({
+        role: message.role,
+        content: formatMessageContent(message),
+      })
+    }
   }
 
   return {

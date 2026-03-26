@@ -63,6 +63,45 @@ describe('openai helpers', () => {
     })
   })
 
+  it('uses multimodal content format when image attachments have dataUrl', () => {
+    const result = buildChatRequest(settings, [
+      {
+        id: 'm-3',
+        role: 'user',
+        content: '这张图片是什么',
+        attachments: [
+          { id: 'a-1', name: 'photo.png', kind: 'image', dataUrl: 'data:image/png;base64,abc123' },
+        ],
+      },
+    ])
+
+    expect(result.messages[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Attachments:\n- photo.png (image)\n\n这张图片是什么' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
+      ],
+    })
+  })
+
+  it('falls back to text format for image attachments without dataUrl', () => {
+    const result = buildChatRequest(settings, [
+      {
+        id: 'm-4',
+        role: 'user',
+        content: '看看这个',
+        attachments: [
+          { id: 'a-1', name: 'photo.png', kind: 'image' },
+        ],
+      },
+    ])
+
+    expect(result.messages[1]).toEqual({
+      role: 'user',
+      content: 'Attachments:\n- photo.png (image)\n\n看看这个',
+    })
+  })
+
   it('rejects sendChatRequest when the API key is missing', async () => {
     await expect(
       sendChatRequest({ ...settings, apiKey: '' }, messages, vi.fn()),

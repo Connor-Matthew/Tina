@@ -27,6 +27,12 @@ const desktopApi: DesktopApi = {
   createMessage(conversationId, message) {
     return ipcRenderer.invoke('messages:create', conversationId, message) as Promise<void>
   },
+  storeAttachment(id, name, dataUrl) {
+    return ipcRenderer.invoke('attachments:store', id, name, dataUrl) as Promise<void>
+  },
+  readAttachment(id) {
+    return ipcRenderer.invoke('attachments:read', id) as Promise<string>
+  },
   sendChat(messages) {
     return ipcRenderer.invoke('chat:send', messages) as Promise<string>
   },

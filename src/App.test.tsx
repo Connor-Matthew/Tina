@@ -29,6 +29,8 @@ const { desktopApi } = vi.hoisted(() => ({
     renameConversation: vi.fn(),
     deleteConversation: vi.fn(),
     createMessage: vi.fn().mockResolvedValue(undefined),
+    storeAttachment: vi.fn().mockResolvedValue(undefined),
+    readAttachment: vi.fn().mockResolvedValue(''),
     sendChat: vi.fn(),
     streamChat: vi.fn().mockImplementation(
       async (_messages: unknown, _onToken: unknown, _onError: unknown, onEnd: () => void) => {
