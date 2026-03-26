@@ -1,0 +1,13 @@
+appId: com.tina.desktop
+productName: Tina
+directories:
+  output: release
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+files:
+  - dist/**/*
+  - dist-electron/**/*
+asar: true

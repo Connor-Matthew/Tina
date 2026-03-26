@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 .alma-snapshots
 storage/
+release/
