@@ -76,6 +76,76 @@ function formatMessageContent(message: ChatMessage): string {
   return `Attachments:\n${attachmentLines.join('\n')}\n\n${message.content}`
 }
 
+interface StreamDelta {
+  choices?: Array<{
+    delta?: { content?: string }
+  }>
+}
+
+export async function* streamChatRequest(
+  settings: AppSettings,
+  messages: ChatMessage[],
+  fetchImpl: FetchLike = fetch,
+): AsyncGenerator<string, void, unknown> {
+  if (!settings.apiKey.trim()) {
+    throw new Error('API key is required before sending a message.')
+  }
+
+  const body = { ...buildChatRequest(settings, messages), stream: true }
+
+  const response = await fetchImpl(
+    `${normalizeBaseUrl(settings.baseUrl)}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    },
+  )
+
+  if (!response.ok) {
+    const data = (await response.json()) as OpenAIResponse
+    throw new Error(data.error?.message ?? 'The chat request failed.')
+  }
+
+  if (!response.body) {
+    throw new Error('The response body is empty.')
+  }
+
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
+        const payload = trimmed.slice(6)
+        if (payload === '[DONE]') return
+        try {
+          const parsed = JSON.parse(payload) as StreamDelta
+          const content = parsed.choices?.[0]?.delta?.content
+          if (content) yield content
+        } catch {
+          // skip malformed JSON lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export async function sendChatRequest(
   settings: AppSettings,
   messages: ChatMessage[],

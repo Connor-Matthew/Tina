@@ -203,4 +203,64 @@ describe('chatStore', () => {
       }),
     )
   })
+
+  it('streams tokens into an assistant message incrementally', async () => {
+    const persistence = createPersistence()
+    let idCounter = 0
+    const store = createChatStore(persistence, () => `msg-${++idCounter}`)
+
+    await store.getState().createConversation()
+
+    const streamFromModel = vi.fn()
+      .mockImplementation(async (
+        _messages: unknown,
+        onToken: (t: string) => void,
+        _onError: (e: string) => void,
+        onEnd: () => void,
+      ) => {
+        onToken('Hello')
+        onToken(' world')
+        onEnd()
+      })
+
+    await store.getState().streamMessage(
+      { content: 'Hi', attachments: [] },
+      streamFromModel,
+    )
+
+    const messages = store.getState().conversations[0]?.messages ?? []
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({ role: 'user', content: 'Hi' })
+    expect(messages[1]).toMatchObject({ role: 'assistant', content: 'Hello world' })
+
+    // Assistant message should be persisted after streaming completes
+    expect(persistence.createMessage).toHaveBeenCalledTimes(2)
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      2,
+      'conversation-1',
+      expect.objectContaining({ role: 'assistant', content: 'Hello world' }),
+    )
+    expect(store.getState().isSending).toBe(false)
+  })
+
+  it('sets error state when streaming fails mid-stream', async () => {
+    const persistence = createPersistence()
+    const store = createChatStore(persistence, () => 'msg-1')
+
+    await store.getState().createConversation()
+
+    const streamFromModel = vi.fn()
+      .mockImplementation(async (_messages: unknown, onToken: (t: string) => void, onError: (e: string) => void) => {
+        onToken('partial')
+        onError('connection lost')
+      })
+
+    await store.getState().streamMessage(
+      { content: 'Hi', attachments: [] },
+      streamFromModel,
+    )
+
+    expect(store.getState().isSending).toBe(false)
+    expect(store.getState().error).toBe('connection lost')
+  })
 })

@@ -30,6 +30,11 @@ const { desktopApi } = vi.hoisted(() => ({
     deleteConversation: vi.fn(),
     createMessage: vi.fn().mockResolvedValue(undefined),
     sendChat: vi.fn(),
+    streamChat: vi.fn().mockImplementation(
+      async (_messages: unknown, _onToken: unknown, _onError: unknown, onEnd: () => void) => {
+        onEnd()
+      },
+    ),
   },
 }))
 
@@ -68,6 +73,12 @@ describe('App', () => {
     desktopApi.deleteConversation.mockClear()
     desktopApi.createMessage.mockClear()
     desktopApi.sendChat.mockClear()
+    desktopApi.streamChat.mockClear()
+    desktopApi.streamChat.mockImplementation(
+      async (_messages: unknown, _onToken: unknown, _onError: unknown, onEnd: () => void) => {
+        onEnd()
+      },
+    )
   })
 
   it('loads persisted conversations from the desktop API on startup', async () => {
@@ -228,7 +239,11 @@ describe('App', () => {
 
   it('includes selected attachments when sending a message', async () => {
     const user = userEvent.setup()
-    desktopApi.sendChat.mockResolvedValueOnce('已收到')
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, _onToken: unknown, _onError: unknown, onEnd: () => void) => {
+        onEnd()
+      },
+    )
     render(<App />)
 
     const uploadInput = await screen.findByLabelText('添加照片和文件')
@@ -238,23 +253,33 @@ describe('App', () => {
     await user.type(screen.getByPlaceholderText('要求后续变更'), '请处理这个文件')
     await user.click(screen.getByRole('button', { name: '发送消息' }))
 
-    expect(desktopApi.sendChat).toHaveBeenCalledWith([
-      expect.objectContaining({
-        role: 'user',
-        content: '请处理这个文件',
-        attachments: [
-          expect.objectContaining({
-            name: 'notes.txt',
-            kind: 'file',
-          }),
-        ],
-      }),
-    ])
+    expect(desktopApi.streamChat).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          role: 'user',
+          content: '请处理这个文件',
+          attachments: [
+            expect.objectContaining({
+              name: 'notes.txt',
+              kind: 'file',
+            }),
+          ],
+        }),
+      ],
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    )
   })
 
   it('keeps the conversation message track stretched so user messages do not sit in the middle', async () => {
     const user = userEvent.setup()
-    desktopApi.sendChat.mockResolvedValueOnce('已收到')
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: unknown, onEnd: () => void) => {
+        onToken('已收到')
+        onEnd()
+      },
+    )
     const { container } = render(<App />)
 
     await user.type(await screen.findByPlaceholderText('要求后续变更'), '这条消息应该靠右显示')
@@ -279,7 +304,12 @@ describe('App', () => {
 
   it('renders assistant replies as markdown instead of raw plaintext', async () => {
     const user = userEvent.setup()
-    desktopApi.sendChat.mockResolvedValueOnce('# 回答标题\n\n- 第一项\n- **重点**\n\n`npm run build`')
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: unknown, onEnd: () => void) => {
+        onToken('# 回答标题\n\n- 第一项\n- **重点**\n\n`npm run build`')
+        onEnd()
+      },
+    )
     render(<App />)
 
     await user.type(await screen.findByPlaceholderText('要求后续变更'), '请用 markdown 回复')
@@ -295,8 +325,11 @@ describe('App', () => {
 
   it('renders assistant replies with gfm tables', async () => {
     const user = userEvent.setup()
-    desktopApi.sendChat.mockResolvedValueOnce(
-      '| 模型 | 状态 |\n| --- | --- |\n| gpt-4.1 | 可用 |\n| gpt-5.4 | 推荐 |',
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: unknown, onEnd: () => void) => {
+        onToken('| 模型 | 状态 |\n| --- | --- |\n| gpt-4.1 | 可用 |\n| gpt-5.4 | 推荐 |')
+        onEnd()
+      },
     )
     render(<App />)
 
@@ -311,8 +344,11 @@ describe('App', () => {
 
   it('renders fenced code blocks with a language label and highlighted tokens', async () => {
     const user = userEvent.setup()
-    desktopApi.sendChat.mockResolvedValueOnce(
-      '```ts\nconst answer = async () => {\n  return "ok"\n}\n```',
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: unknown, onEnd: () => void) => {
+        onToken('```ts\nconst answer = async () => {\n  return "ok"\n}\n```')
+        onEnd()
+      },
     )
     render(<App />)
 

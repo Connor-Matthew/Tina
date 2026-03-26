@@ -103,7 +103,48 @@ function _(e) {
 	let t = e.attachments.map((e) => `- ${e.name} (${e.kind})`);
 	return e.content ? `Attachments:\n${t.join("\n")}\n\n${e.content}` : `Attachments:\n${t.join("\n")}`;
 }
-async function v(e, t, n = fetch) {
+async function* v(e, t, n = fetch) {
+	if (!e.apiKey.trim()) throw Error("API key is required before sending a message.");
+	let r = {
+		...g(e, t),
+		stream: !0
+	}, i = await n(`${h(e.baseUrl)}/chat/completions`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${e.apiKey}`
+		},
+		body: JSON.stringify(r)
+	});
+	if (!i.ok) {
+		let e = await i.json();
+		throw Error(e.error?.message ?? "The chat request failed.");
+	}
+	if (!i.body) throw Error("The response body is empty.");
+	let a = i.body.getReader(), o = new TextDecoder(), s = "";
+	try {
+		for (;;) {
+			let { done: e, value: t } = await a.read();
+			if (e) break;
+			s += o.decode(t, { stream: !0 });
+			let n = s.split("\n");
+			s = n.pop() ?? "";
+			for (let e of n) {
+				let t = e.trim();
+				if (!t || !t.startsWith("data: ")) continue;
+				let n = t.slice(6);
+				if (n === "[DONE]") return;
+				try {
+					let e = JSON.parse(n).choices?.[0]?.delta?.content;
+					e && (yield e);
+				} catch {}
+			}
+		}
+	} finally {
+		a.releaseLock();
+	}
+}
+async function y(e, t, n = fetch) {
 	if (!e.apiKey.trim()) throw Error("API key is required before sending a message.");
 	let r = await n(`${h(e.baseUrl)}/chat/completions`, {
 		method: "POST",
@@ -118,7 +159,7 @@ async function v(e, t, n = fetch) {
 	if (!a) throw Error("The model response was empty.");
 	return a;
 }
-async function y(e, t = fetch) {
+async function b(e, t = fetch) {
 	if (!e.apiKey.trim()) throw Error("API key is required before detecting models.");
 	let n = await t(`${h(e.baseUrl)}/models`, {
 		method: "GET",
@@ -129,71 +170,79 @@ async function y(e, t = fetch) {
 }
 //#endregion
 //#region src/main/settings.ts
-var b = {
+var x = {
 	apiKey: "",
 	baseUrl: "https://api.openai.com/v1",
 	model: "gpt-4o-mini",
 	systemPrompt: ""
-}, x = c(import.meta.url);
-function S() {
-	let e = x("electron-store").default, t = new e({
+}, S = c(import.meta.url);
+function C() {
+	let e = S("electron-store").default, t = new e({
 		name: "settings",
 		projectName: "tina",
-		defaults: { settings: b }
+		defaults: { settings: x }
 	});
 	return { get() {
 		return t.get("settings");
 	} };
 }
-function C(e) {
+function w(e) {
 	return {
-		...b,
+		...x,
 		...e,
-		baseUrl: (e?.baseUrl ?? b.baseUrl).replace(/\/+$/, "")
+		baseUrl: (e?.baseUrl ?? x.baseUrl).replace(/\/+$/, "")
 	};
 }
-var w = class {
+var T = class {
 	database;
 	legacyStore;
-	constructor(e, t = S()) {
+	constructor(e, t = C()) {
 		this.database = e, this.legacyStore = t;
 	}
 	ensureSettings() {
 		let e = this.database.getSettings();
-		if (e) return C(e);
-		let t = C(this.legacyStore.get());
+		if (e) return w(e);
+		let t = w(this.legacyStore.get());
 		return this.database.setSettings(t), t;
 	}
 	get() {
 		return this.ensureSettings();
 	}
 	set(e) {
-		let t = C({
+		let t = w({
 			...this.get(),
 			...e
 		});
 		return this.database.setSettings(t), t;
 	}
-}, T, E;
-function D() {
-	return T ||= new m({ databasePath: i(t.getPath("userData"), "tina.sqlite") }), T;
-}
+}, E, D;
 function O() {
-	return E ||= new w(D()), E;
+	return E ||= new m({ databasePath: i(t.getPath("userData"), "tina.sqlite") }), E;
 }
 function k() {
-	n.handle("settings:get", () => O().get()), n.handle("settings:list-models", (e, t) => y(t)), n.handle("settings:update", (e, t) => O().set(t)), n.handle("conversations:list", () => D().listConversations()), n.handle("conversations:create", (e, t) => D().createConversation({
+	return D ||= new T(O()), D;
+}
+function A() {
+	n.handle("settings:get", () => k().get()), n.handle("settings:list-models", (e, t) => b(t)), n.handle("settings:update", (e, t) => k().set(t)), n.handle("conversations:list", () => O().listConversations()), n.handle("conversations:create", (e, t) => O().createConversation({
 		id: o(),
 		title: t?.trim() || "New thread"
-	})), n.handle("conversations:rename", (e, t, n) => D().renameConversation(t, n)), n.handle("conversations:delete", (e, t) => {
-		D().deleteConversation(t);
+	})), n.handle("conversations:rename", (e, t, n) => O().renameConversation(t, n)), n.handle("conversations:delete", (e, t) => {
+		O().deleteConversation(t);
 	}), n.handle("messages:create", (e, t, n) => {
-		D().createMessage(t, n);
-	}), n.handle("chat:send", async (e, t) => v(O().get(), t));
+		O().createMessage(t, n);
+	}), n.handle("chat:send", async (e, t) => y(k().get(), t)), n.handle("chat:stream", async (e, t) => {
+		let n = e.sender;
+		try {
+			for await (let e of v(k().get(), t)) n.send("chat:stream-chunk", e);
+			n.send("chat:stream-end");
+		} catch (e) {
+			n.send("chat:stream-error", e instanceof Error ? e.message : "Stream failed.");
+		}
+	});
 }
 //#endregion
 //#region src/main/windowConfig.ts
-function A(e) {
+function j(e) {
 	return {
 		width: 1330,
 		height: 880,
@@ -211,14 +260,14 @@ function A(e) {
 }
 //#endregion
 //#region src/main/index.ts
-var j = r(a(import.meta.url));
-function M() {
-	let t = new e(A(j));
-	return process.env.VITE_DEV_SERVER_URL ? t.loadURL(process.env.VITE_DEV_SERVER_URL) : t.loadFile(i(j, "../index.html")), t;
+var M = r(a(import.meta.url));
+function N() {
+	let t = new e(j(M));
+	return process.env.VITE_DEV_SERVER_URL ? t.loadURL(process.env.VITE_DEV_SERVER_URL) : t.loadFile(i(M, "../index.html")), t;
 }
 t.whenReady().then(() => {
-	k(), M(), t.on("activate", () => {
-		e.getAllWindows().length === 0 && M();
+	A(), N(), t.on("activate", () => {
+		e.getAllWindows().length === 0 && N();
 	});
 }), t.on("window-all-closed", () => {
 	process.platform !== "darwin" && t.quit();

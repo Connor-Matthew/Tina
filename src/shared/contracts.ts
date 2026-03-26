@@ -41,6 +41,12 @@ export interface DesktopApi {
   deleteConversation(conversationId: string): Promise<void>
   createMessage(conversationId: string, message: ChatMessage): Promise<void>
   sendChat(messages: ChatMessage[]): Promise<string>
+  streamChat(
+    messages: ChatMessage[],
+    onToken: (token: string) => void,
+    onError: (error: string) => void,
+    onEnd: () => void,
+  ): Promise<void>
 }
 
 declare global {

@@ -30,6 +30,22 @@ const desktopApi: DesktopApi = {
   sendChat(messages) {
     return ipcRenderer.invoke('chat:send', messages) as Promise<string>
   },
+  streamChat(messages, onToken, onError, onEnd) {
+    const chunkHandler = (_event: Electron.IpcRendererEvent, token: string) => onToken(token)
+    const errorHandler = (_event: Electron.IpcRendererEvent, message: string) => onError(message)
+    const endHandler = () => {
+      ipcRenderer.removeListener('chat:stream-chunk', chunkHandler)
+      ipcRenderer.removeListener('chat:stream-error', errorHandler)
+      ipcRenderer.removeListener('chat:stream-end', endHandler)
+      onEnd()
+    }
+
+    ipcRenderer.on('chat:stream-chunk', chunkHandler)
+    ipcRenderer.on('chat:stream-error', errorHandler)
+    ipcRenderer.on('chat:stream-end', endHandler)
+
+    return ipcRenderer.invoke('chat:stream', messages) as Promise<void>
+  },
 }
 
 contextBridge.exposeInMainWorld('desktop', desktopApi)

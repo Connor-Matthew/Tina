@@ -29,6 +29,15 @@ interface ChatState {
     submission: ChatComposerSubmission,
     sendToModel: (messages: ChatMessage[]) => Promise<string>,
   ) => Promise<void>
+  streamMessage: (
+    submission: ChatComposerSubmission,
+    streamFromModel: (
+      messages: ChatMessage[],
+      onToken: (token: string) => void,
+      onError: (error: string) => void,
+      onEnd: () => void,
+    ) => Promise<void>,
+  ) => Promise<void>
 }
 
 function buildMessage(
@@ -43,6 +52,24 @@ function buildMessage(
     content,
     ...(attachments?.length ? { attachments } : {}),
   }
+}
+
+function updateMessageContent(
+  conversations: Conversation[],
+  conversationId: string,
+  messageId: string,
+  content: string,
+): Conversation[] {
+  return conversations.map((conversation) =>
+    conversation.id === conversationId
+      ? {
+          ...conversation,
+          messages: conversation.messages.map((msg) =>
+            msg.id === messageId ? { ...msg, content } : msg,
+          ),
+        }
+      : conversation,
+  )
 }
 
 function appendMessage(
@@ -173,6 +200,82 @@ export function createChatStore(
           isSending: false,
           conversations: appendMessage(state.conversations, targetConversationId, assistantMessage),
         }))
+      } catch (error) {
+        set({
+          isSending: false,
+          error: error instanceof Error ? error.message : 'Failed to send message.',
+        })
+      }
+    },
+    streamMessage: async (submission, streamFromModel) => {
+      const trimmed = submission.content.trim()
+      const attachments = submission.attachments
+
+      if (!trimmed && attachments.length === 0) {
+        return
+      }
+
+      set({ isSending: true, error: null })
+
+      let conversationId = get().activeConversationId
+
+      try {
+        if (!conversationId) {
+          conversationId = await get().createConversation()
+        }
+
+        const targetConversationId = conversationId
+        const userMessage = buildMessage(createId, 'user', trimmed, attachments)
+        await persistence.createMessage(targetConversationId, userMessage)
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, targetConversationId, userMessage),
+        }))
+
+        const activeConversation = get().conversations.find(
+          (conversation) => conversation.id === targetConversationId,
+        )
+
+        if (!activeConversation) {
+          set({ isSending: false, error: 'Conversation not found.' })
+          return
+        }
+
+        const assistantMessage = buildMessage(createId, 'assistant', '')
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, targetConversationId, assistantMessage),
+        }))
+
+        let accumulated = ''
+
+        await new Promise<void>((resolve, reject) => {
+          streamFromModel(
+            activeConversation.messages,
+            (token) => {
+              accumulated += token
+              set((state) => ({
+                conversations: updateMessageContent(
+                  state.conversations,
+                  targetConversationId,
+                  assistantMessage.id,
+                  accumulated,
+                ),
+              }))
+            },
+            (error) => {
+              reject(new Error(error))
+            },
+            () => {
+              resolve()
+            },
+          ).catch(reject)
+        })
+
+        assistantMessage.content = accumulated
+        await persistence.createMessage(targetConversationId, assistantMessage)
+
+        set({ isSending: false })
       } catch (error) {
         set({
           isSending: false,

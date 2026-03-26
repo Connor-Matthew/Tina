@@ -97,7 +97,11 @@ function App() {
   )
 
   async function handleSend(submission: ChatComposerSubmission) {
-    await chatStore.getState().sendMessage(submission, (messages) => desktop.sendChat(messages))
+    await chatStore.getState().streamMessage(
+      submission,
+      (messages, onToken, onError, onEnd) =>
+        desktop.streamChat(messages, onToken, onError, onEnd),
+    )
   }
 
   async function handleSaveSettings() {

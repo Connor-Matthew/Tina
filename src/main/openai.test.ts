@@ -6,6 +6,7 @@ import {
   listAvailableModels,
   normalizeBaseUrl,
   sendChatRequest,
+  streamChatRequest,
 } from './openai'
 
 const settings: AppSettings = {
@@ -135,5 +136,55 @@ describe('openai helpers', () => {
     await expect(sendChatRequest(settings, messages, mockFetch)).resolves.toBe(
       'Pong',
     )
+  })
+
+  it('yields tokens from a streaming SSE response', async () => {
+    const sseData = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+      'data: [DONE]\n\n',
+    ].join('')
+
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(sseData))
+        controller.close()
+      },
+    })
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: stream,
+    })
+
+    const tokens: string[] = []
+    for await (const token of streamChatRequest(settings, messages, mockFetch)) {
+      tokens.push(token)
+    }
+
+    expect(tokens).toEqual(['Hello', ' world'])
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/chat/completions',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"stream":true'),
+      }),
+    )
+  })
+
+  it('throws when the streaming response is not ok', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: { message: 'rate limited' } }),
+    })
+
+    const generator = streamChatRequest(settings, messages, mockFetch)
+    await expect(generator.next()).rejects.toThrow('rate limited')
+  })
+
+  it('rejects streamChatRequest when the API key is missing', async () => {
+    const generator = streamChatRequest({ ...settings, apiKey: '' }, messages, vi.fn())
+    await expect(generator.next()).rejects.toThrow(/api key/i)
   })
 })

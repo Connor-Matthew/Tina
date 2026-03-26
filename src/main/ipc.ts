@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import { AppDatabase } from './database'
-import { listAvailableModels, sendChatRequest } from './openai'
+import { listAvailableModels, sendChatRequest, streamChatRequest } from './openai'
 import { SettingsStore } from './settings'
 import type { AppSettings, ChatMessage } from '../shared/contracts'
 
@@ -64,5 +64,20 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('chat:send', async (_event, messages: ChatMessage[]) => {
     return sendChatRequest(getSettingsStore().get(), messages)
+  })
+
+  ipcMain.handle('chat:stream', async (event, messages: ChatMessage[]) => {
+    const webContents = event.sender
+    try {
+      for await (const token of streamChatRequest(getSettingsStore().get(), messages)) {
+        webContents.send('chat:stream-chunk', token)
+      }
+      webContents.send('chat:stream-end')
+    } catch (error) {
+      webContents.send(
+        'chat:stream-error',
+        error instanceof Error ? error.message : 'Stream failed.',
+      )
+    }
   })
 }
