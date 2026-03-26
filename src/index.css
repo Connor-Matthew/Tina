@@ -27,10 +27,6 @@ body,
   min-height: 100vh;
 }
 
-body {
-  min-width: 1100px;
-}
-
 button,
 input,
 textarea {

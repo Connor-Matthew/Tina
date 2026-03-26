@@ -16,6 +16,15 @@ interface OpenAIResponse {
   }>
 }
 
+interface OpenAIModelsResponse {
+  error?: {
+    message?: string
+  }
+  data?: Array<{
+    id?: string
+  }>
+}
+
 type FetchLike = typeof fetch
 
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -41,7 +50,7 @@ export function buildChatRequest(
   for (const message of messages) {
     payloadMessages.push({
       role: message.role,
-      content: message.content,
+      content: formatMessageContent(message),
     })
   }
 
@@ -49,6 +58,22 @@ export function buildChatRequest(
     model: settings.model,
     messages: payloadMessages,
   }
+}
+
+function formatMessageContent(message: ChatMessage): string {
+  if (!message.attachments?.length) {
+    return message.content
+  }
+
+  const attachmentLines = message.attachments.map(
+    (attachment) => `- ${attachment.name} (${attachment.kind})`,
+  )
+
+  if (!message.content) {
+    return `Attachments:\n${attachmentLines.join('\n')}`
+  }
+
+  return `Attachments:\n${attachmentLines.join('\n')}\n\n${message.content}`
 }
 
 export async function sendChatRequest(
@@ -85,4 +110,30 @@ export async function sendChatRequest(
   }
 
   return content
+}
+
+export async function listAvailableModels(
+  settings: AppSettings,
+  fetchImpl: FetchLike = fetch,
+): Promise<string[]> {
+  if (!settings.apiKey.trim()) {
+    throw new Error('API key is required before detecting models.')
+  }
+
+  const response = await fetchImpl(`${normalizeBaseUrl(settings.baseUrl)}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+  })
+
+  const data = (await response.json()) as OpenAIModelsResponse
+
+  if (!response.ok) {
+    throw new Error(data.error?.message ?? 'The model discovery request failed.')
+  }
+
+  return (data.data ?? [])
+    .map((item) => item.id?.trim() ?? '')
+    .filter((id) => id.length > 0)
 }

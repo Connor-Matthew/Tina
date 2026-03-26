@@ -109,7 +109,6 @@ export function Sidebar({
         <>
           <div className="sidebar__top">
             <div>
-              <p className="sidebar__eyebrow">Desktop Chat</p>
               <h1 className="sidebar__title">Tina</h1>
             </div>
 

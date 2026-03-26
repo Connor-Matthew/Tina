@@ -1,14 +1,76 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { Conversation } from '../../shared/contracts'
 import { createChatStore } from './chatStore'
 
-describe('chatStore', () => {
-  it('creates a new active conversation with a default title', () => {
-    const store = createChatStore()
+function createPersistence(overrides?: Partial<Parameters<typeof createChatStore>[0]>) {
+  return {
+    listConversations: vi.fn<() => Promise<Conversation[]>>().mockResolvedValue([]),
+    createConversation: vi
+      .fn<(title?: string) => Promise<Conversation>>()
+      .mockImplementation(async (title = 'New thread') => ({
+        id: 'conversation-1',
+        title,
+        messages: [],
+      })),
+    renameConversation: vi
+      .fn<(conversationId: string, title: string) => Promise<Conversation>>()
+      .mockImplementation(async (conversationId, title) => ({
+        id: conversationId,
+        title,
+        messages: [],
+      })),
+    deleteConversation: vi.fn<(conversationId: string) => Promise<void>>().mockResolvedValue(),
+    createMessage: vi
+      .fn<(conversationId: string, message: Conversation['messages'][number]) => Promise<void>>()
+      .mockResolvedValue(),
+    ...overrides,
+  }
+}
 
-    const conversationId = store.getState().createConversation()
+describe('chatStore', () => {
+  it('loads persisted conversations and selects the first thread', async () => {
+    const persistence = createPersistence({
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: 'conversation-2',
+          title: 'Latest',
+          messages: [],
+        },
+        {
+          id: 'conversation-1',
+          title: 'Earlier',
+          messages: [],
+        },
+      ]),
+    })
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    await store.getState().loadConversations()
+
+    expect(store.getState().conversations).toEqual([
+      {
+        id: 'conversation-2',
+        title: 'Latest',
+        messages: [],
+      },
+      {
+        id: 'conversation-1',
+        title: 'Earlier',
+        messages: [],
+      },
+    ])
+    expect(store.getState().activeConversationId).toBe('conversation-2')
+  })
+
+  it('creates a new active conversation through persistence with a default title', async () => {
+    const persistence = createPersistence()
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    const conversationId = await store.getState().createConversation()
     const conversation = store.getState().conversations[0]
 
+    expect(persistence.createConversation).toHaveBeenCalledWith('New thread')
     expect(store.getState().activeConversationId).toBe(conversationId)
     expect(conversation).toMatchObject({
       id: conversationId,
@@ -17,19 +79,83 @@ describe('chatStore', () => {
     })
   })
 
-  it('appends the user message before the assistant reply arrives', async () => {
-    const store = createChatStore()
+  it('renames a conversation using trimmed text and keeps the existing title when empty', async () => {
+    const persistence = createPersistence()
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    await store.getState().createConversation()
+    await store.getState().renameConversation('conversation-1', '  Weekly planning  ')
+    expect(store.getState().conversations[0]?.title).toBe('Weekly planning')
+
+    await store.getState().renameConversation('conversation-1', '   ')
+    expect(persistence.renameConversation).toHaveBeenCalledTimes(1)
+    expect(store.getState().conversations[0]?.title).toBe('Weekly planning')
+  })
+
+  it('deletes a conversation through persistence and moves the active selection to the next thread', async () => {
+    const persistence = createPersistence({
+      createConversation: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'conversation-1',
+          title: 'First',
+          messages: [],
+        })
+        .mockResolvedValueOnce({
+          id: 'conversation-2',
+          title: 'Second',
+          messages: [],
+        }),
+    })
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    await store.getState().createConversation()
+    await store.getState().createConversation()
+    await store.getState().deleteConversation('conversation-2')
+
+    expect(persistence.deleteConversation).toHaveBeenCalledWith('conversation-2')
+    expect(store.getState().conversations).toHaveLength(1)
+    expect(store.getState().conversations[0]?.id).toBe('conversation-1')
+    expect(store.getState().activeConversationId).toBe('conversation-1')
+  })
+
+  it('persists the user message before sending and appends the assistant reply after it is stored', async () => {
+    const persistence = createPersistence()
+    const store = createChatStore(persistence, () => 'message-1')
     const sendToModel = vi.fn().mockResolvedValue('Pong')
 
-    await store.getState().sendMessage('Ping', sendToModel)
+    await store.getState().createConversation()
+    await store.getState().sendMessage(
+      {
+        content: 'Ping',
+        attachments: [],
+      },
+      sendToModel,
+    )
 
-    expect(sendToModel).toHaveBeenCalledOnce()
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      1,
+      'conversation-1',
+      expect.objectContaining({
+        id: 'message-1',
+        role: 'user',
+        content: 'Ping',
+      }),
+    )
     expect(sendToModel).toHaveBeenCalledWith([
       expect.objectContaining({
         role: 'user',
         content: 'Ping',
       }),
     ])
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      2,
+      'conversation-1',
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Pong',
+      }),
+    )
     expect(store.getState().conversations[0]?.messages).toEqual([
       expect.objectContaining({
         role: 'user',
@@ -42,28 +168,39 @@ describe('chatStore', () => {
     ])
   })
 
-  it('renames a conversation using trimmed text and keeps the existing title when empty', () => {
-    const store = createChatStore()
+  it('allows sending attachment-only messages and keeps the attachments on the user message', async () => {
+    const persistence = createPersistence()
+    const store = createChatStore(persistence, () => 'message-1')
+    const sendToModel = vi.fn().mockResolvedValue('已收到')
 
-    const conversationId = store.getState().createConversation()
+    await store.getState().createConversation()
+    await store.getState().sendMessage(
+      {
+        content: '',
+        attachments: [
+          {
+            id: 'attachment-1',
+            name: 'design.png',
+            kind: 'image',
+          },
+        ],
+      },
+      sendToModel,
+    )
 
-    store.getState().renameConversation(conversationId, '  Weekly planning  ')
-    expect(store.getState().conversations[0]?.title).toBe('Weekly planning')
-
-    store.getState().renameConversation(conversationId, '   ')
-    expect(store.getState().conversations[0]?.title).toBe('Weekly planning')
-  })
-
-  it('deletes a conversation and moves the active selection to the next available thread', () => {
-    const store = createChatStore()
-
-    const firstConversationId = store.getState().createConversation()
-    const secondConversationId = store.getState().createConversation()
-
-    store.getState().deleteConversation(secondConversationId)
-
-    expect(store.getState().conversations).toHaveLength(1)
-    expect(store.getState().conversations[0]?.id).toBe(firstConversationId)
-    expect(store.getState().activeConversationId).toBe(firstConversationId)
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      1,
+      'conversation-1',
+      expect.objectContaining({
+        role: 'user',
+        content: '',
+        attachments: [
+          expect.objectContaining({
+            name: 'design.png',
+            kind: 'image',
+          }),
+        ],
+      }),
+    )
   })
 })

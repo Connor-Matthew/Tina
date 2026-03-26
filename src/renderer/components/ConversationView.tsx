@@ -1,4 +1,5 @@
 import type { Conversation } from '../../shared/contracts'
+import { MarkdownMessage } from './MarkdownMessage'
 
 interface ConversationViewProps {
   conversation: Conversation | undefined
@@ -27,13 +28,7 @@ export function ConversationView({
         </header>
 
         <div className="conversation__welcome">
-          <h3>今天想聊点什么？</h3>
-          <p>配置好模型后，你可以在这里开始你的第一段对话。</p>
-          <div className="conversation__suggestions">
-            <div className="conversation__suggestion">帮我总结这段需求</div>
-            <div className="conversation__suggestion">把这个想法整理成计划</div>
-            <div className="conversation__suggestion">帮我优化一段前端代码</div>
-          </div>
+          <h3>今天想聊点什么</h3>
           {error ? <p className="conversation__error">{error}</p> : null}
         </div>
       </section>
@@ -52,7 +47,7 @@ export function ConversationView({
         </button>
       </header>
 
-      <div className="conversation__messages">
+      <div className="conversation__messages" style={{ alignItems: 'stretch' }}>
         {conversation.messages.map((message) => (
           <article
             key={message.id}
@@ -61,7 +56,27 @@ export function ConversationView({
             <div className="message__label">
               {message.role === 'user' ? '你' : 'Tina'}
             </div>
-            <div className="message__bubble">{message.content}</div>
+            {message.attachments?.length ? (
+              <div className="message__attachments">
+                {message.attachments.map((attachment) => (
+                  <div key={attachment.id} className="message__attachment">
+                    <span className="message__attachment-kind">
+                      {attachment.kind === 'image' ? '图片' : '文件'}
+                    </span>
+                    <span className="message__attachment-name">{attachment.name}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {message.content ? (
+              <div className="message__bubble">
+                {message.role === 'assistant' ? (
+                  <MarkdownMessage content={message.content} />
+                ) : (
+                  message.content
+                )}
+              </div>
+            ) : null}
           </article>
         ))}
 

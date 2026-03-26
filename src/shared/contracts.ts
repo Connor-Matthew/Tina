@@ -7,10 +7,17 @@ export interface AppSettings {
   systemPrompt: string
 }
 
+export interface ChatAttachment {
+  id: string
+  name: string
+  kind: 'image' | 'file'
+}
+
 export interface ChatMessage {
   id: string
   role: Exclude<ChatRole, 'system'>
   content: string
+  attachments?: ChatAttachment[]
 }
 
 export interface Conversation {
@@ -19,9 +26,20 @@ export interface Conversation {
   messages: ChatMessage[]
 }
 
+export interface ChatComposerSubmission {
+  content: string
+  attachments: ChatAttachment[]
+}
+
 export interface DesktopApi {
   getSettings(): Promise<AppSettings>
+  listAvailableModels(settings: AppSettings): Promise<string[]>
   updateSettings(next: Partial<AppSettings>): Promise<AppSettings>
+  listConversations(): Promise<Conversation[]>
+  createConversation(title?: string): Promise<Conversation>
+  renameConversation(conversationId: string, title: string): Promise<Conversation>
+  deleteConversation(conversationId: string): Promise<void>
+  createMessage(conversationId: string, message: ChatMessage): Promise<void>
   sendChat(messages: ChatMessage[]): Promise<string>
 }
 

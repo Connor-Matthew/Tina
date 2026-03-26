@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 
 import type { AppSettings } from '../shared/contracts'
+import type { AppDatabase } from './database'
 
 export const defaultSettings: AppSettings = {
   apiKey: '',
@@ -10,6 +11,34 @@ export const defaultSettings: AppSettings = {
 }
 
 const require = createRequire(import.meta.url)
+
+export interface LegacySettingsStore {
+  get(): Partial<AppSettings> | undefined
+}
+
+export function createLegacySettingsStore(): LegacySettingsStore {
+  const ElectronStore = require('electron-store').default as new (options: {
+    defaults: { settings: AppSettings }
+    name: string
+    projectName: string
+  }) => {
+    get(key: 'settings'): AppSettings | undefined
+  }
+
+  const store = new ElectronStore({
+    name: 'settings',
+    projectName: 'tina',
+    defaults: {
+      settings: defaultSettings,
+    },
+  })
+
+  return {
+    get() {
+      return store.get('settings')
+    },
+  }
+}
 
 export function mergeSettings(
   partial: Partial<AppSettings> | undefined,
@@ -22,32 +51,32 @@ export function mergeSettings(
 }
 
 export class SettingsStore {
-  private readonly store: {
-    get(key: 'settings'): AppSettings | undefined
-    set(key: 'settings', value: AppSettings): void
+  private readonly database: AppDatabase
+  private readonly legacyStore: LegacySettingsStore
+
+  constructor(
+    database: AppDatabase,
+    legacyStore: LegacySettingsStore = createLegacySettingsStore(),
+  ) {
+    this.database = database
+    this.legacyStore = legacyStore
   }
 
-  constructor() {
-    const ElectronStore = require('electron-store').default as new (
-      options: {
-        name: string
-        defaults: { settings: AppSettings }
-      },
-    ) => {
-      get(key: 'settings'): AppSettings | undefined
-      set(key: 'settings', value: AppSettings): void
+  private ensureSettings(): AppSettings {
+    const persisted = this.database.getSettings()
+
+    if (persisted) {
+      return mergeSettings(persisted)
     }
 
-    this.store = new ElectronStore({
-      name: 'settings',
-      defaults: {
-        settings: defaultSettings,
-      },
-    })
+    const migrated = mergeSettings(this.legacyStore.get())
+    this.database.setSettings(migrated)
+
+    return migrated
   }
 
   get(): AppSettings {
-    return mergeSettings(this.store.get('settings'))
+    return this.ensureSettings()
   }
 
   set(next: Partial<AppSettings>): AppSettings {
@@ -56,7 +85,7 @@ export class SettingsStore {
       ...next,
     })
 
-    this.store.set('settings', merged)
+    this.database.setSettings(merged)
     return merged
   }
 }

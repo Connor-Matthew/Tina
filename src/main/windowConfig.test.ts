@@ -9,4 +9,11 @@ describe('windowConfig', () => {
       titleBarStyle: 'hiddenInset',
     })
   })
+
+  it('allows the main window to shrink to 1000 pixels wide', () => {
+    expect(createWindowOptions('/tmp')).toMatchObject({
+      minWidth: 1000,
+      minHeight: 720,
+    })
+  })
 })

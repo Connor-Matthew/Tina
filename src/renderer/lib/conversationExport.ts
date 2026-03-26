@@ -10,7 +10,13 @@ function formatRoleLabel(role: Conversation['messages'][number]['role']): string
 
 export function formatConversationAsMarkdown(conversation: Conversation): string {
   const sections = conversation.messages.map((message) => {
-    return `## ${formatRoleLabel(message.role)}\n\n${message.content}`
+    const attachmentSection = message.attachments?.length
+      ? `\n\nAttachments:\n${message.attachments
+          .map((attachment) => `- ${attachment.name} (${attachment.kind})`)
+          .join('\n')}`
+      : ''
+
+    return `## ${formatRoleLabel(message.role)}\n\n${message.content || ' '}${attachmentSection}`
   })
 
   return [`# ${conversation.title}`, ...sections].join('\n\n')

@@ -3,9 +3,9 @@ import { join } from 'node:path'
 
 export function createWindowOptions(preloadPath: string): BrowserWindowConstructorOptions {
   return {
-    width: 1360,
+    width: 1330,
     height: 880,
-    minWidth: 1100,
+    minWidth: 1000,
     minHeight: 720,
     title: '',
     titleBarStyle: 'hiddenInset',

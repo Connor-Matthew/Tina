@@ -1,73 +1,117 @@
 import { createStore } from 'zustand/vanilla'
 
-import type { ChatMessage, Conversation } from '../../shared/contracts'
+import type {
+  ChatComposerSubmission,
+  ChatMessage,
+  Conversation,
+} from '../../shared/contracts'
+
+export interface ChatPersistence {
+  listConversations: () => Promise<Conversation[]>
+  createConversation: (title?: string) => Promise<Conversation>
+  renameConversation: (conversationId: string, title: string) => Promise<Conversation>
+  deleteConversation: (conversationId: string) => Promise<void>
+  createMessage: (conversationId: string, message: ChatMessage) => Promise<void>
+}
 
 interface ChatState {
   conversations: Conversation[]
   activeConversationId: string | null
   isSending: boolean
   error: string | null
-  createConversation: () => string
+  loadConversations: () => Promise<void>
+  createConversation: () => Promise<string>
   selectConversation: (conversationId: string) => void
-  renameConversation: (conversationId: string, title: string) => void
-  deleteConversation: (conversationId: string) => void
+  renameConversation: (conversationId: string, title: string) => Promise<void>
+  deleteConversation: (conversationId: string) => Promise<void>
   clearError: () => void
   sendMessage: (
-    content: string,
+    submission: ChatComposerSubmission,
     sendToModel: (messages: ChatMessage[]) => Promise<string>,
   ) => Promise<void>
 }
 
-let nextId = 0
-
-function createMessageId(): string {
-  nextId += 1
-  return `message-${nextId}`
-}
-
-function createConversationId(): string {
-  nextId += 1
-  return `conversation-${nextId}`
-}
-
-function buildConversation(): Conversation {
+function buildMessage(
+  createId: () => string,
+  role: ChatMessage['role'],
+  content: string,
+  attachments?: ChatMessage['attachments'],
+): ChatMessage {
   return {
-    id: createConversationId(),
-    title: 'New thread',
-    messages: [],
+    id: createId(),
+    role,
+    content,
+    ...(attachments?.length ? { attachments } : {}),
   }
 }
 
-export function createChatStore() {
+function appendMessage(
+  conversations: Conversation[],
+  conversationId: string,
+  message: ChatMessage,
+): Conversation[] {
+  return conversations.map((conversation) =>
+    conversation.id === conversationId
+      ? {
+          ...conversation,
+          messages: [...conversation.messages, message],
+        }
+      : conversation,
+  )
+}
+
+export function createChatStore(
+  persistence: ChatPersistence,
+  createId: () => string = () => crypto.randomUUID(),
+) {
   return createStore<ChatState>((set, get) => ({
     conversations: [],
     activeConversationId: null,
     isSending: false,
     error: null,
-    createConversation: () => {
-      const conversation = buildConversation()
+    loadConversations: async () => {
+      const conversations = await persistence.listConversations()
+      const currentActiveConversationId = get().activeConversationId
+      const nextActiveConversationId =
+        conversations.find((conversation) => conversation.id === currentActiveConversationId)?.id ??
+        conversations[0]?.id ??
+        null
+
+      set({
+        conversations,
+        activeConversationId: nextActiveConversationId,
+      })
+    },
+    createConversation: async () => {
+      const conversation = await persistence.createConversation('New thread')
+
       set((state) => ({
         conversations: [conversation, ...state.conversations],
         activeConversationId: conversation.id,
       }))
+
       return conversation.id
     },
     selectConversation: (conversationId) => {
       set({ activeConversationId: conversationId })
     },
-    renameConversation: (conversationId, title) => {
+    renameConversation: async (conversationId, title) => {
       const trimmed = title.trim()
       if (!trimmed) {
         return
       }
 
+      const conversation = await persistence.renameConversation(conversationId, trimmed)
+
       set((state) => ({
-        conversations: state.conversations.map((conversation) =>
-          conversation.id === conversationId ? { ...conversation, title: trimmed } : conversation,
+        conversations: state.conversations.map((item) =>
+          item.id === conversationId ? { ...item, title: conversation.title } : item,
         ),
       }))
     },
-    deleteConversation: (conversationId) => {
+    deleteConversation: async (conversationId) => {
+      await persistence.deleteConversation(conversationId)
+
       set((state) => {
         const nextConversations = state.conversations.filter(
           (conversation) => conversation.id !== conversationId,
@@ -86,63 +130,48 @@ export function createChatStore() {
     clearError: () => {
       set({ error: null })
     },
-    sendMessage: async (content, sendToModel) => {
-      const trimmed = content.trim()
-      if (!trimmed) {
+    sendMessage: async (submission, sendToModel) => {
+      const trimmed = submission.content.trim()
+      const attachments = submission.attachments
+
+      if (!trimmed && attachments.length === 0) {
         return
       }
+
+      set({ isSending: true, error: null })
 
       let conversationId = get().activeConversationId
-      if (!conversationId) {
-        conversationId = get().createConversation()
-      }
-
-      const userMessage: ChatMessage = {
-        id: createMessageId(),
-        role: 'user',
-        content: trimmed,
-      }
-
-      set((state) => ({
-        isSending: true,
-        error: null,
-        conversations: state.conversations.map((conversation) =>
-          conversation.id === conversationId
-            ? {
-                ...conversation,
-                messages: [...conversation.messages, userMessage],
-              }
-            : conversation,
-        ),
-      }))
-
-      const activeConversation = get().conversations.find(
-        (conversation) => conversation.id === conversationId,
-      )
-
-      if (!activeConversation) {
-        set({ isSending: false, error: 'Conversation not found.' })
-        return
-      }
 
       try {
-        const assistantReply = await sendToModel(activeConversation.messages)
-        const assistantMessage: ChatMessage = {
-          id: createMessageId(),
-          role: 'assistant',
-          content: assistantReply,
+        if (!conversationId) {
+          conversationId = await get().createConversation()
         }
+
+        const targetConversationId = conversationId
+        const userMessage = buildMessage(createId, 'user', trimmed, attachments)
+        await persistence.createMessage(targetConversationId, userMessage)
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, targetConversationId, userMessage),
+        }))
+
+        const activeConversation = get().conversations.find(
+          (conversation) => conversation.id === targetConversationId,
+        )
+
+        if (!activeConversation) {
+          set({ isSending: false, error: 'Conversation not found.' })
+          return
+        }
+
+        const assistantReply = await sendToModel(activeConversation.messages)
+        const assistantMessage = buildMessage(createId, 'assistant', assistantReply)
+
+        await persistence.createMessage(targetConversationId, assistantMessage)
 
         set((state) => ({
           isSending: false,
-          conversations: state.conversations.map((conversation) =>
-            conversation.id === conversationId
-              ? {
-                  ...conversation,
-                  messages: [...conversation.messages, assistantMessage],
-                }
-              : conversation,
-          ),
+          conversations: appendMessage(state.conversations, targetConversationId, assistantMessage),
         }))
       } catch (error) {
         set({
