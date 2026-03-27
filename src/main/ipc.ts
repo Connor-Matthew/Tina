@@ -113,6 +113,17 @@ export function registerIpcHandlers(): void {
     getDatabase().createMessage(conversationId, message)
   })
 
+  ipcMain.handle(
+    'messages:update',
+    (_event, conversationId: string, messageId: string, content: string) => {
+      getDatabase().updateMessage(conversationId, messageId, content)
+    },
+  )
+
+  ipcMain.handle('messages:delete-from', (_event, conversationId: string, messageId: string) => {
+    getDatabase().deleteMessagesFrom(conversationId, messageId)
+  })
+
   ipcMain.handle('attachments:store', (_event, id: string, _name: string, dataUrl: string) => {
     const dir = getAttachmentsDir()
     const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '')

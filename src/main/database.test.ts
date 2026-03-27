@@ -228,4 +228,98 @@ describe('AppDatabase', () => {
     expect(database.listConversations()).toEqual([])
     database.close()
   })
+
+  it('updates a stored message without changing its position in the conversation', () => {
+    const database = createTestDatabase()
+    const conversation = database.createConversation({
+      id: 'conversation-1',
+      title: 'Editable thread',
+    })
+
+    database.createMessage(conversation.id, {
+      id: 'message-1',
+      role: 'user',
+      content: 'Original prompt',
+    })
+    database.createMessage(conversation.id, {
+      id: 'message-2',
+      role: 'assistant',
+      content: 'Original reply',
+    })
+
+    database.updateMessage(conversation.id, 'message-1', 'Edited prompt')
+
+    expect(database.listConversations()).toEqual([
+      {
+        id: 'conversation-1',
+        title: 'Editable thread',
+        messages: [
+          {
+            id: 'message-1',
+            role: 'user',
+            content: 'Edited prompt',
+          },
+          {
+            id: 'message-2',
+            role: 'assistant',
+            content: 'Original reply',
+          },
+        ],
+      },
+    ])
+
+    database.close()
+  })
+
+  it('deletes the selected message and every later message in the same conversation', () => {
+    const database = createTestDatabase()
+    const conversation = database.createConversation({
+      id: 'conversation-1',
+      title: 'Cascade thread',
+    })
+
+    database.createMessage(conversation.id, {
+      id: 'message-1',
+      role: 'user',
+      content: 'First prompt',
+    })
+    database.createMessage(conversation.id, {
+      id: 'message-2',
+      role: 'assistant',
+      content: 'First reply',
+    })
+    database.createMessage(conversation.id, {
+      id: 'message-3',
+      role: 'user',
+      content: 'Second prompt',
+    })
+    database.createMessage(conversation.id, {
+      id: 'message-4',
+      role: 'assistant',
+      content: 'Second reply',
+    })
+
+    database.deleteMessagesFrom(conversation.id, 'message-3')
+
+    expect(database.listConversations()).toEqual([
+      {
+        id: 'conversation-1',
+        title: 'Cascade thread',
+        messages: [
+          {
+            id: 'message-1',
+            role: 'user',
+            content: 'First prompt',
+          },
+          {
+            id: 'message-2',
+            role: 'assistant',
+            content: 'First reply',
+          },
+        ],
+      },
+    ])
+
+    database.close()
+  })
 })

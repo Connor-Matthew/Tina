@@ -92,3 +92,65 @@
 - Reworked `src/App.tsx` and `src/renderer/components/SettingsPanel.tsx` so the renderer manages multiple providers, provider-scoped model lists, default provider/model selection, capability badges, and importing detected models into the active provider.
 - Verified with `npx vitest run src/main/database.test.ts src/main/settings.test.ts src/main/openai.test.ts src/App.test.tsx`, `npx vitest run`, and `npm run build`.
 - Build still reports the existing Vite large-chunk warning plus the existing Electron `inlineDynamicImports` deprecation warning.
+
+# Message Actions
+
+- [x] Review the current message rendering, persistence, and store flow for per-message actions.
+- [x] Confirm deletion semantics with the user and standardize on cascading delete from the selected message onward.
+- [x] Add failing renderer tests for user-message copy, delete, edit, and resend plus assistant-message copy and delete.
+- [x] Add failing store and database tests for message update/delete operations and conversation-tail trimming.
+- [x] Extend shared contracts, preload, and IPC to support updating a message and deleting messages from a selected point onward.
+- [x] Implement database support for updating a single message and deleting a message tail while preserving conversation order.
+- [x] Implement chat store actions for cascading delete, user-message edit/resend, and user-message resend.
+- [x] Implement message action controls in `src/renderer/components/ConversationView.tsx`, including inline edit state for user messages.
+- [x] Run targeted verification and record the result here.
+
+## Plan
+
+- Renderer behavior:
+  - User messages expose `复制`、`删除`、`编辑`、`重发`.
+  - Assistant messages expose `复制`、`删除`.
+  - `删除` uses cascading semantics: remove the selected message and all later messages in that conversation.
+  - `编辑` opens an inline editor on the selected user message; submit replaces that message content, removes later messages, then requests a fresh assistant reply from the edited history.
+  - `重发` removes the selected user message and all later messages, recreates that same user message at the tail of preserved history, then requests a fresh assistant reply.
+- Persistence/API:
+  - Add message mutation methods alongside existing create/list operations instead of special-casing this in the renderer.
+  - Keep the current conversation shape unchanged; renderer reloads local state through explicit store mutations rather than a full refetch.
+- Testing order:
+  - Start with store/database red tests for tail deletion and edit/update behavior.
+  - Add UI red tests for visible actions and edit flow.
+  - Implement the minimal persistence/store/UI code to turn each test green.
+
+## Review
+
+- Added per-message operations across the renderer and persistence stack: user messages now support `复制`、`删除`、`编辑`、`重发`, while assistant messages support `复制` and `删除`.
+- Standardized deletion as cascading from the selected message onward, with matching SQLite, IPC, preload, desktop contract, and chat-store support in `src/main/database.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/contracts.ts`, and `src/renderer/store/chatStore.ts`.
+- Implemented inline user-message editing in `src/renderer/components/ConversationView.tsx`; saving an edit trims later history and streams a fresh assistant reply from the edited context.
+- Implemented resend by trimming from the selected user message, recreating that user message at the tail of preserved history, and streaming a fresh assistant reply.
+- Added a renderer clipboard helper in `src/renderer/lib/clipboard.ts` so copy behavior stays easy to mock and verify in tests.
+- Verified with `npx vitest run src/main/database.test.ts src/renderer/store/chatStore.test.ts src/App.test.tsx`, `npx vitest run`, and `npm run build`.
+- Build still reports the existing large client chunk warning and the existing Electron `inlineDynamicImports` deprecation warning.
+
+# Message Edit Button Refresh
+
+- [ ] Review the current conversation action bar and identify the smallest safe redesign for the edit button.
+- [ ] Add or update a focused renderer test that protects the new edit-button treatment.
+- [ ] Restyle the edit action so it reads like the primary revision control within user messages without disrupting copy/resend/delete actions.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- UI direction:
+  - Keep all existing message actions and semantics unchanged.
+  - Give `编辑` a distinct visual treatment with an icon, stronger contrast, and clearer hover/focus states.
+  - Keep the rest of the action chips quieter so the edit affordance becomes easier to scan in the conversation window.
+- Scope:
+  - Limit the change to `src/renderer/components/ConversationView.tsx`, `src/App.css`, and focused renderer coverage.
+  - Avoid changing IPC, store, or persistence behavior.
+
+## Review
+
+- Updated `src/renderer/components/ConversationView.tsx` so the user-message `编辑` action now includes a compact pencil icon and a dedicated modifier class, while all existing action semantics remain unchanged.
+- Refined the action-chip styling in `src/App.css` to make the general controls quieter and give the edit action a warmer, higher-contrast treatment with stronger hover and focus states.
+- Added focused renderer coverage in `src/App.test.tsx` that verifies the edit control keeps its dedicated class and icon treatment inside the message action bar.
+- Verified with `npx vitest run src/App.test.tsx`.

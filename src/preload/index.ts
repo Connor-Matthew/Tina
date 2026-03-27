@@ -27,6 +27,12 @@ const desktopApi: DesktopApi = {
   createMessage(conversationId, message) {
     return ipcRenderer.invoke('messages:create', conversationId, message) as Promise<void>
   },
+  updateMessage(conversationId, messageId, content) {
+    return ipcRenderer.invoke('messages:update', conversationId, messageId, content) as Promise<void>
+  },
+  deleteMessagesFrom(conversationId, messageId) {
+    return ipcRenderer.invoke('messages:delete-from', conversationId, messageId) as Promise<void>
+  },
   storeAttachment(id, name, dataUrl) {
     return ipcRenderer.invoke('attachments:store', id, name, dataUrl) as Promise<void>
   },

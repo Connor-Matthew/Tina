@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { desktopApi } = vi.hoisted(() => {
+const { desktopApi, writeTextMock } = vi.hoisted(() => {
   const createSettings = () => ({
     providers: [
       {
@@ -64,6 +64,8 @@ const { desktopApi } = vi.hoisted(() => {
     renameConversation: vi.fn(),
     deleteConversation: vi.fn(),
     createMessage: vi.fn().mockResolvedValue(undefined),
+    updateMessage: vi.fn().mockResolvedValue(undefined),
+    deleteMessagesFrom: vi.fn().mockResolvedValue(undefined),
     storeAttachment: vi.fn().mockResolvedValue(undefined),
     readAttachment: vi.fn().mockResolvedValue(''),
     sendChat: vi.fn(),
@@ -73,11 +75,16 @@ const { desktopApi } = vi.hoisted(() => {
       },
     ),
     },
+    writeTextMock: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   }
 })
 
 vi.mock('./renderer/lib/electron', () => ({
   getDesktopApi: () => desktopApi,
+}))
+
+vi.mock('./renderer/lib/clipboard', () => ({
+  copyToClipboard: writeTextMock,
 }))
 
 import App from './App'
@@ -152,6 +159,7 @@ describe('App', () => {
 
   beforeEach(() => {
     cleanup()
+    writeTextMock.mockClear()
     desktopApi.getSettings.mockClear()
     desktopApi.listAvailableModels.mockClear()
     desktopApi.updateSettings.mockClear()
@@ -160,6 +168,8 @@ describe('App', () => {
     desktopApi.renameConversation.mockClear()
     desktopApi.deleteConversation.mockClear()
     desktopApi.createMessage.mockClear()
+    desktopApi.updateMessage.mockClear()
+    desktopApi.deleteMessagesFrom.mockClear()
     desktopApi.sendChat.mockClear()
     desktopApi.streamChat.mockClear()
     desktopApi.streamChat.mockImplementation(
@@ -167,6 +177,159 @@ describe('App', () => {
         onEnd()
       },
     )
+  })
+
+  it('shows message actions for user and assistant messages and copies their content', async () => {
+    const user = userEvent.setup()
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          { id: 'message-1', role: 'user', content: '请帮我整理一下' },
+          { id: 'message-2', role: 'assistant', content: '当然可以' },
+        ],
+      },
+    ])
+
+    render(<App />)
+
+    expect(await screen.findByText('请帮我整理一下')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制用户消息 请帮我整理一下' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '编辑用户消息 请帮我整理一下' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重发用户消息 请帮我整理一下' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除用户消息 请帮我整理一下' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制助手消息 当然可以' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除助手消息 当然可以' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '复制用户消息 请帮我整理一下' }))
+    await user.click(screen.getByRole('button', { name: '复制助手消息 当然可以' }))
+
+    expect(writeTextMock).toHaveBeenNthCalledWith(1, '请帮我整理一下')
+    expect(writeTextMock).toHaveBeenNthCalledWith(2, '当然可以')
+  })
+
+  it('renders message action buttons below the message content', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [{ id: 'message-1', role: 'user', content: '请把按钮放到底部' }],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('请把按钮放到底部')).toBeInTheDocument()
+
+    const message = container.querySelector('.message--user')
+    const bubble = message?.querySelector('.message__bubble')
+    const actions = message?.querySelector('.message__actions')
+
+    expect(message).not.toBeNull()
+    expect(bubble).not.toBeNull()
+    expect(actions).not.toBeNull()
+    expect(bubble?.compareDocumentPosition(actions as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('gives the edit action a distinct visual treatment inside user message actions', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [{ id: 'message-1', role: 'user', content: '请优化编辑入口' }],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('请优化编辑入口')).toBeInTheDocument()
+
+    const editButton = screen.getByRole('button', { name: '编辑用户消息 请优化编辑入口' })
+    const editIcon = editButton.querySelector('svg')
+    const editLabel = editButton.querySelector('span')
+    const actions = container.querySelector('.message__actions')
+
+    expect(actions).not.toBeNull()
+    expect(editButton).toHaveClass('message__action', 'message__action--edit')
+    expect(editButton).toBeInTheDocument()
+    expect(editIcon).not.toBeNull()
+    expect(editLabel).not.toBeNull()
+    expect(editLabel).toHaveTextContent('编辑')
+  })
+
+  it('lets the user edit a user message inline and resend from that point', async () => {
+    const user = userEvent.setup()
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          { id: 'message-1', role: 'user', content: '旧问题' },
+          { id: 'message-2', role: 'assistant', content: '旧回答' },
+        ],
+      },
+    ])
+    desktopApi.updateMessage = vi.fn().mockResolvedValue(undefined)
+    desktopApi.deleteMessagesFrom = vi.fn().mockResolvedValue(undefined)
+    desktopApi.createMessage.mockResolvedValue(undefined)
+    desktopApi.streamChat.mockImplementationOnce(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: unknown, onEnd: () => void) => {
+        onToken('新回答')
+        onEnd()
+      },
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText('旧问题')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '编辑用户消息 旧问题' }))
+
+    const editor = screen.getByRole('textbox', { name: '编辑消息' })
+    await user.clear(editor)
+    await user.type(editor, '改过的问题')
+    await user.click(screen.getByRole('button', { name: '保存并重发' }))
+
+    expect(desktopApi.updateMessage).toHaveBeenCalledWith('conversation-1', 'message-1', '改过的问题')
+    expect(desktopApi.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-2')
+    expect(desktopApi.streamChat).toHaveBeenCalledWith(
+      [{ id: 'message-1', role: 'user', content: '改过的问题' }],
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    )
+    expect(await screen.findByText('新回答')).toBeInTheDocument()
+    expect(screen.queryByText('旧回答')).not.toBeInTheDocument()
+  })
+
+  it('deletes messages with cascading semantics from the selected point', async () => {
+    const user = userEvent.setup()
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          { id: 'message-1', role: 'user', content: '第一问' },
+          { id: 'message-2', role: 'assistant', content: '第一答' },
+          { id: 'message-3', role: 'user', content: '第二问' },
+          { id: 'message-4', role: 'assistant', content: '第二答' },
+        ],
+      },
+    ])
+    desktopApi.deleteMessagesFrom = vi.fn().mockResolvedValue(undefined)
+
+    render(<App />)
+
+    expect(await screen.findByText('第二问')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '删除用户消息 第二问' }))
+
+    expect(desktopApi.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-3')
+    expect(screen.queryByText('第二问')).not.toBeInTheDocument()
+    expect(screen.queryByText('第二答')).not.toBeInTheDocument()
+    expect(screen.getByText('第一问')).toBeInTheDocument()
+    expect(screen.getByText('第一答')).toBeInTheDocument()
   })
 
   it('loads persisted conversations from the desktop API on startup', async () => {

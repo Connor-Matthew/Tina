@@ -1,1 +1,58 @@
-let e=require(`electron`);e.contextBridge.exposeInMainWorld(`desktop`,{getSettings(){return e.ipcRenderer.invoke(`settings:get`)},listAvailableModels(t){return e.ipcRenderer.invoke(`settings:list-models`,t)},updateSettings(t){return e.ipcRenderer.invoke(`settings:update`,t)},listConversations(){return e.ipcRenderer.invoke(`conversations:list`)},createConversation(t){return e.ipcRenderer.invoke(`conversations:create`,t)},renameConversation(t,n){return e.ipcRenderer.invoke(`conversations:rename`,t,n)},deleteConversation(t){return e.ipcRenderer.invoke(`conversations:delete`,t)},createMessage(t,n){return e.ipcRenderer.invoke(`messages:create`,t,n)},storeAttachment(t,n,r){return e.ipcRenderer.invoke(`attachments:store`,t,n,r)},readAttachment(t){return e.ipcRenderer.invoke(`attachments:read`,t)},sendChat(t){return e.ipcRenderer.invoke(`chat:send`,t)},streamChat(t,n,r,i){let a=(e,t)=>n(t),o=(e,t)=>r(t),s=()=>{e.ipcRenderer.removeListener(`chat:stream-chunk`,a),e.ipcRenderer.removeListener(`chat:stream-error`,o),e.ipcRenderer.removeListener(`chat:stream-end`,s),i()};return e.ipcRenderer.on(`chat:stream-chunk`,a),e.ipcRenderer.on(`chat:stream-error`,o),e.ipcRenderer.on(`chat:stream-end`,s),e.ipcRenderer.invoke(`chat:stream`,t)}});
+let electron = require("electron");
+//#region src/preload/index.ts
+electron.contextBridge.exposeInMainWorld("desktop", {
+	getSettings() {
+		return electron.ipcRenderer.invoke("settings:get");
+	},
+	listAvailableModels(settings) {
+		return electron.ipcRenderer.invoke("settings:list-models", settings);
+	},
+	updateSettings(next) {
+		return electron.ipcRenderer.invoke("settings:update", next);
+	},
+	listConversations() {
+		return electron.ipcRenderer.invoke("conversations:list");
+	},
+	createConversation(title) {
+		return electron.ipcRenderer.invoke("conversations:create", title);
+	},
+	renameConversation(conversationId, title) {
+		return electron.ipcRenderer.invoke("conversations:rename", conversationId, title);
+	},
+	deleteConversation(conversationId) {
+		return electron.ipcRenderer.invoke("conversations:delete", conversationId);
+	},
+	createMessage(conversationId, message) {
+		return electron.ipcRenderer.invoke("messages:create", conversationId, message);
+	},
+	updateMessage(conversationId, messageId, content) {
+		return electron.ipcRenderer.invoke("messages:update", conversationId, messageId, content);
+	},
+	deleteMessagesFrom(conversationId, messageId) {
+		return electron.ipcRenderer.invoke("messages:delete-from", conversationId, messageId);
+	},
+	storeAttachment(id, name, dataUrl) {
+		return electron.ipcRenderer.invoke("attachments:store", id, name, dataUrl);
+	},
+	readAttachment(id) {
+		return electron.ipcRenderer.invoke("attachments:read", id);
+	},
+	sendChat(messages) {
+		return electron.ipcRenderer.invoke("chat:send", messages);
+	},
+	streamChat(messages, onToken, onError, onEnd) {
+		const chunkHandler = (_event, token) => onToken(token);
+		const errorHandler = (_event, message) => onError(message);
+		const endHandler = () => {
+			electron.ipcRenderer.removeListener("chat:stream-chunk", chunkHandler);
+			electron.ipcRenderer.removeListener("chat:stream-error", errorHandler);
+			electron.ipcRenderer.removeListener("chat:stream-end", endHandler);
+			onEnd();
+		};
+		electron.ipcRenderer.on("chat:stream-chunk", chunkHandler);
+		electron.ipcRenderer.on("chat:stream-error", errorHandler);
+		electron.ipcRenderer.on("chat:stream-end", endHandler);
+		return electron.ipcRenderer.invoke("chat:stream", messages);
+	}
+});
+//#endregion

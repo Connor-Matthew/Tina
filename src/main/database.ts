@@ -576,6 +576,56 @@ export class AppDatabase {
     this.database.prepare('DELETE FROM conversations WHERE id = ?').run(id)
   }
 
+  updateMessage(conversationId: string, messageId: string, content: string): void {
+    const timestamp = nowIsoString()
+    const result = this.database
+      .prepare(
+        `
+          UPDATE messages
+          SET content = ?
+          WHERE id = ? AND conversation_id = ?
+        `,
+      )
+      .run(content, messageId, conversationId)
+
+    if (result.changes === 0) {
+      throw new Error(`Message not found: ${messageId}`)
+    }
+
+    this.database
+      .prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
+      .run(timestamp, conversationId)
+  }
+
+  deleteMessagesFrom(conversationId: string, messageId: string): void {
+    const target = this.database
+      .prepare(
+        `
+          SELECT created_at
+          FROM messages
+          WHERE id = ? AND conversation_id = ?
+        `,
+      )
+      .get(messageId, conversationId) as { created_at: string } | undefined
+
+    if (!target) {
+      throw new Error(`Message not found: ${messageId}`)
+    }
+
+    this.database
+      .prepare(
+        `
+          DELETE FROM messages
+          WHERE conversation_id = ? AND created_at >= ?
+        `,
+      )
+      .run(conversationId, target.created_at)
+
+    this.database
+      .prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
+      .run(nowIsoString(), conversationId)
+  }
+
   createMessage(conversationId: string, message: ChatMessage): ChatMessage {
     const timestamp = nowIsoString()
 

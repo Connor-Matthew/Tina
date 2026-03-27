@@ -86,6 +86,8 @@ export interface DesktopApi {
   renameConversation(conversationId: string, title: string): Promise<Conversation>
   deleteConversation(conversationId: string): Promise<void>
   createMessage(conversationId: string, message: ChatMessage): Promise<void>
+  updateMessage(conversationId: string, messageId: string, content: string): Promise<void>
+  deleteMessagesFrom(conversationId: string, messageId: string): Promise<void>
   storeAttachment(id: string, name: string, dataUrl: string): Promise<void>
   readAttachment(id: string): Promise<string>
   sendChat(messages: ChatMessage[]): Promise<string>

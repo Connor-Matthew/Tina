@@ -12,6 +12,8 @@ export interface ChatPersistence {
   renameConversation: (conversationId: string, title: string) => Promise<Conversation>
   deleteConversation: (conversationId: string) => Promise<void>
   createMessage: (conversationId: string, message: ChatMessage) => Promise<void>
+  updateMessage: (conversationId: string, messageId: string, content: string) => Promise<void>
+  deleteMessagesFrom: (conversationId: string, messageId: string) => Promise<void>
 }
 
 interface ChatState {
@@ -24,7 +26,27 @@ interface ChatState {
   selectConversation: (conversationId: string) => void
   renameConversation: (conversationId: string, title: string) => Promise<void>
   deleteConversation: (conversationId: string) => Promise<void>
+  deleteMessagesFrom: (conversationId: string, messageId: string) => Promise<void>
   clearError: () => void
+  editMessageAndResend: (
+    input: { conversationId: string; messageId: string; content: string },
+    streamFromModel: (
+      messages: ChatMessage[],
+      onToken: (token: string) => void,
+      onError: (error: string) => void,
+      onEnd: () => void,
+    ) => Promise<void>,
+  ) => Promise<void>
+  resendMessage: (
+    conversationId: string,
+    messageId: string,
+    streamFromModel: (
+      messages: ChatMessage[],
+      onToken: (token: string) => void,
+      onError: (error: string) => void,
+      onEnd: () => void,
+    ) => Promise<void>,
+  ) => Promise<void>
   sendMessage: (
     submission: ChatComposerSubmission,
     sendToModel: (messages: ChatMessage[]) => Promise<string>,
@@ -38,6 +60,46 @@ interface ChatState {
       onEnd: () => void,
     ) => Promise<void>,
   ) => Promise<void>
+}
+
+function replaceMessageContent(
+  conversations: Conversation[],
+  conversationId: string,
+  messageId: string,
+  content: string,
+): Conversation[] {
+  return conversations.map((conversation) =>
+    conversation.id === conversationId
+      ? {
+          ...conversation,
+          messages: conversation.messages.map((message) =>
+            message.id === messageId ? { ...message, content } : message,
+          ),
+        }
+      : conversation,
+  )
+}
+
+function trimMessagesFrom(
+  conversations: Conversation[],
+  conversationId: string,
+  messageId: string,
+): Conversation[] {
+  return conversations.map((conversation) => {
+    if (conversation.id !== conversationId) {
+      return conversation
+    }
+
+    const messageIndex = conversation.messages.findIndex((message) => message.id === messageId)
+    if (messageIndex === -1) {
+      return conversation
+    }
+
+    return {
+      ...conversation,
+      messages: conversation.messages.slice(0, messageIndex),
+    }
+  })
 }
 
 function buildMessage(
@@ -154,8 +216,159 @@ export function createChatStore(
         }
       })
     },
+    deleteMessagesFrom: async (conversationId, messageId) => {
+      await persistence.deleteMessagesFrom(conversationId, messageId)
+
+      set((state) => ({
+        conversations: trimMessagesFrom(state.conversations, conversationId, messageId),
+      }))
+    },
     clearError: () => {
       set({ error: null })
+    },
+    editMessageAndResend: async (input, streamFromModel) => {
+      const trimmed = input.content.trim()
+      if (!trimmed) {
+        return
+      }
+
+      const conversation = get().conversations.find((item) => item.id === input.conversationId)
+      const messageIndex = conversation?.messages.findIndex((message) => message.id === input.messageId) ?? -1
+      const originalMessage = messageIndex >= 0 ? conversation?.messages[messageIndex] : undefined
+
+      if (!conversation || !originalMessage || originalMessage.role !== 'user') {
+        return
+      }
+
+      set({ isSending: true, error: null })
+
+      try {
+        await persistence.updateMessage(input.conversationId, input.messageId, trimmed)
+
+        set((state) => ({
+          conversations: replaceMessageContent(
+            state.conversations,
+            input.conversationId,
+            input.messageId,
+            trimmed,
+          ),
+        }))
+
+        const currentConversation = get().conversations.find((item) => item.id === input.conversationId)
+        const updatedIndex = currentConversation?.messages.findIndex((message) => message.id === input.messageId) ?? -1
+        const nextMessage = updatedIndex >= 0 ? currentConversation?.messages[updatedIndex + 1] : undefined
+
+        if (nextMessage) {
+          await persistence.deleteMessagesFrom(input.conversationId, nextMessage.id)
+          set((state) => ({
+            conversations: trimMessagesFrom(state.conversations, input.conversationId, nextMessage.id),
+          }))
+        }
+
+        const history = (get().conversations.find((item) => item.id === input.conversationId)?.messages ?? [])
+        const assistantMessage = buildMessage(createId, 'assistant', '')
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, input.conversationId, assistantMessage),
+        }))
+
+        let accumulated = ''
+
+        await new Promise<void>((resolve, reject) => {
+          streamFromModel(
+            history,
+            (token) => {
+              accumulated += token
+              set((state) => ({
+                conversations: updateMessageContent(
+                  state.conversations,
+                  input.conversationId,
+                  assistantMessage.id,
+                  accumulated,
+                ),
+              }))
+            },
+            (error) => reject(new Error(error)),
+            () => resolve(),
+          ).catch(reject)
+        })
+
+        assistantMessage.content = accumulated
+        await persistence.createMessage(input.conversationId, assistantMessage)
+        set({ isSending: false })
+      } catch (error) {
+        set({
+          isSending: false,
+          error: error instanceof Error ? error.message : 'Failed to edit message.',
+        })
+      }
+    },
+    resendMessage: async (conversationId, messageId, streamFromModel) => {
+      const conversation = get().conversations.find((item) => item.id === conversationId)
+      const targetMessage = conversation?.messages.find((message) => message.id === messageId)
+
+      if (!conversation || !targetMessage || targetMessage.role !== 'user') {
+        return
+      }
+
+      set({ isSending: true, error: null })
+
+      try {
+        await persistence.deleteMessagesFrom(conversationId, messageId)
+
+        set((state) => ({
+          conversations: trimMessagesFrom(state.conversations, conversationId, messageId),
+        }))
+
+        const replayedUserMessage = buildMessage(
+          createId,
+          'user',
+          targetMessage.content,
+          targetMessage.attachments,
+        )
+        await persistence.createMessage(conversationId, replayedUserMessage)
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, conversationId, replayedUserMessage),
+        }))
+
+        const history = get().conversations.find((item) => item.id === conversationId)?.messages ?? []
+        const assistantMessage = buildMessage(createId, 'assistant', '')
+
+        set((state) => ({
+          conversations: appendMessage(state.conversations, conversationId, assistantMessage),
+        }))
+
+        let accumulated = ''
+
+        await new Promise<void>((resolve, reject) => {
+          streamFromModel(
+            history,
+            (token) => {
+              accumulated += token
+              set((state) => ({
+                conversations: updateMessageContent(
+                  state.conversations,
+                  conversationId,
+                  assistantMessage.id,
+                  accumulated,
+                ),
+              }))
+            },
+            (error) => reject(new Error(error)),
+            () => resolve(),
+          ).catch(reject)
+        })
+
+        assistantMessage.content = accumulated
+        await persistence.createMessage(conversationId, assistantMessage)
+        set({ isSending: false })
+      } catch (error) {
+        set({
+          isSending: false,
+          error: error instanceof Error ? error.message : 'Failed to resend message.',
+        })
+      }
     },
     sendMessage: async (submission, sendToModel) => {
       const trimmed = submission.content.trim()

@@ -24,6 +24,12 @@ function createPersistence(overrides?: Partial<Parameters<typeof createChatStore
     createMessage: vi
       .fn<(conversationId: string, message: Conversation['messages'][number]) => Promise<void>>()
       .mockResolvedValue(),
+    updateMessage: vi
+      .fn<(conversationId: string, messageId: string, content: string) => Promise<void>>()
+      .mockResolvedValue(),
+    deleteMessagesFrom: vi
+      .fn<(conversationId: string, messageId: string) => Promise<void>>()
+      .mockResolvedValue(),
     ...overrides,
   }
 }
@@ -262,5 +268,139 @@ describe('chatStore', () => {
 
     expect(store.getState().isSending).toBe(false)
     expect(store.getState().error).toBe('connection lost')
+  })
+
+  it('deletes the selected message and every later message from the active conversation', async () => {
+    const persistence = createPersistence({
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: 'conversation-1',
+          title: 'Thread',
+          messages: [
+            { id: 'message-1', role: 'user', content: 'First' },
+            { id: 'message-2', role: 'assistant', content: 'Reply' },
+            { id: 'message-3', role: 'user', content: 'Second' },
+            { id: 'message-4', role: 'assistant', content: 'Another reply' },
+          ],
+        },
+      ]),
+    })
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    await store.getState().loadConversations()
+    await store.getState().deleteMessagesFrom('conversation-1', 'message-3')
+
+    expect(persistence.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-3')
+    expect(store.getState().conversations[0]?.messages).toEqual([
+      { id: 'message-1', role: 'user', content: 'First' },
+      { id: 'message-2', role: 'assistant', content: 'Reply' },
+    ])
+  })
+
+  it('updates a user message, removes later messages, and streams a new assistant reply', async () => {
+    const persistence = createPersistence({
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: 'conversation-1',
+          title: 'Thread',
+          messages: [
+            { id: 'message-1', role: 'user', content: 'Old prompt' },
+            { id: 'message-2', role: 'assistant', content: 'Old reply' },
+          ],
+        },
+      ]),
+    })
+    let idCounter = 2
+    const store = createChatStore(persistence, () => `message-${++idCounter}`)
+
+    await store.getState().loadConversations()
+
+    const streamFromModel = vi.fn().mockImplementation(
+      async (
+        messages: Conversation['messages'],
+        onToken: (token: string) => void,
+        _onError: (error: string) => void,
+        onEnd: () => void,
+      ) => {
+        expect(messages).toEqual([
+          { id: 'message-1', role: 'user', content: 'New prompt' },
+        ])
+        onToken('Fresh')
+        onToken(' reply')
+        onEnd()
+      },
+    )
+
+    await store.getState().editMessageAndResend(
+      {
+        conversationId: 'conversation-1',
+        messageId: 'message-1',
+        content: '  New prompt  ',
+      },
+      streamFromModel,
+    )
+
+    expect(persistence.updateMessage).toHaveBeenCalledWith('conversation-1', 'message-1', 'New prompt')
+    expect(persistence.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-2')
+    expect(persistence.createMessage).toHaveBeenCalledWith(
+      'conversation-1',
+      expect.objectContaining({ role: 'assistant', content: 'Fresh reply' }),
+    )
+    expect(store.getState().conversations[0]?.messages).toEqual([
+      { id: 'message-1', role: 'user', content: 'New prompt' },
+      expect.objectContaining({ id: 'message-3', role: 'assistant', content: 'Fresh reply' }),
+    ])
+  })
+
+  it('replays a user message by trimming later history and streaming a fresh assistant reply', async () => {
+    const persistence = createPersistence({
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: 'conversation-1',
+          title: 'Thread',
+          messages: [
+            { id: 'message-1', role: 'user', content: 'Please retry this' },
+            { id: 'message-2', role: 'assistant', content: 'Old answer' },
+          ],
+        },
+      ]),
+    })
+    let idCounter = 2
+    const store = createChatStore(persistence, () => `message-${++idCounter}`)
+
+    await store.getState().loadConversations()
+
+    const streamFromModel = vi.fn().mockImplementation(
+      async (
+        messages: Conversation['messages'],
+        onToken: (token: string) => void,
+        _onError: (error: string) => void,
+        onEnd: () => void,
+      ) => {
+        expect(messages).toEqual([
+          expect.objectContaining({ role: 'user', content: 'Please retry this' }),
+        ])
+        onToken('New answer')
+        onEnd()
+      },
+    )
+
+    await store.getState().resendMessage('conversation-1', 'message-1', streamFromModel)
+
+    expect(persistence.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-1')
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      1,
+      'conversation-1',
+      expect.objectContaining({ role: 'user', content: 'Please retry this' }),
+    )
+    expect(persistence.createMessage).toHaveBeenNthCalledWith(
+      2,
+      'conversation-1',
+      expect.objectContaining({ role: 'assistant', content: 'New answer' }),
+    )
+    expect(store.getState().conversations[0]?.messages).toEqual([
+      expect.objectContaining({ id: 'message-3', role: 'user', content: 'Please retry this' }),
+      expect.objectContaining({ id: 'message-4', role: 'assistant', content: 'New answer' }),
+    ])
   })
 })

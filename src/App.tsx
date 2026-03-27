@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { Composer, type ComposerModelOption } from './renderer/components/Composer'
 import { ConversationView } from './renderer/components/ConversationView'
+import { copyToClipboard } from './renderer/lib/clipboard'
 import { SettingsPanel } from './renderer/components/SettingsPanel'
 import { Sidebar } from './renderer/components/Sidebar'
 import { downloadConversationMarkdown } from './renderer/lib/conversationExport'
@@ -11,6 +12,7 @@ import { createChatStore } from './renderer/store/chatStore'
 import type {
   AppSettings,
   ChatComposerSubmission,
+  ChatMessage,
   ModelCapability,
   ModelRequestSettings,
   ProviderModelSettings,
@@ -250,7 +252,6 @@ function App() {
   const activeProvider = getProviderById(settings, selectedProviderId)
   const providerModels = getModelsForProvider(settings, selectedProviderId)
   const activeModel = providerModels.find((model) => model.id === selectedModelId) ?? providerModels[0]
-  const defaultProvider = getDefaultProvider(settings)
   const defaultModel = getDefaultModel(settings)
   const detectedModels = activeProvider ? detectedModelsByProvider[activeProvider.id] ?? [] : []
   const modelDetectionError = activeProvider ? modelDetectionErrors[activeProvider.id] ?? null : null
@@ -482,6 +483,27 @@ function App() {
                 isSending={chatState.isSending}
                 error={chatState.error}
                 onOpenSettings={() => openSettings()}
+                onCopyMessage={async (content: string) => {
+                  await copyToClipboard(content)
+                }}
+                onDeleteMessage={async (conversationId: string, messageId: string) => {
+                  await chatStore.getState().deleteMessagesFrom(conversationId, messageId)
+                }}
+                onEditMessage={async (conversationId: string, messageId: string, content: string) => {
+                  await chatStore.getState().editMessageAndResend(
+                    { conversationId, messageId, content },
+                    (messages: ChatMessage[], onToken, onError, onEnd) =>
+                      desktop.streamChat(messages, onToken, onError, onEnd),
+                  )
+                }}
+                onResendMessage={async (conversationId: string, messageId: string) => {
+                  await chatStore.getState().resendMessage(
+                    conversationId,
+                    messageId,
+                    (messages: ChatMessage[], onToken, onError, onEnd) =>
+                      desktop.streamChat(messages, onToken, onError, onEnd),
+                  )
+                }}
               />
               <Composer
                 disabled={chatState.isSending}

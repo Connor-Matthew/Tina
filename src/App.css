@@ -414,6 +414,110 @@
   color: #6b6b63;
 }
 
+.message__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.message__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #5a584f;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(126, 117, 96, 0.12);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.message__action:hover {
+  background: rgba(241, 237, 228, 0.92);
+  color: #2f2d27;
+  box-shadow: inset 0 0 0 1px rgba(126, 117, 96, 0.22);
+}
+
+.message__action:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(126, 117, 96, 0.24),
+    0 0 0 3px rgba(196, 127, 90, 0.18);
+}
+
+.message__action svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.message__action--edit {
+  background: linear-gradient(135deg, #fff5ea 0%, #f7dfc2 100%);
+  color: #7a3d19;
+  font-weight: 600;
+  box-shadow:
+    inset 0 0 0 1px rgba(187, 111, 60, 0.22),
+    0 8px 18px rgba(186, 119, 73, 0.12);
+}
+
+.message__action--edit:hover {
+  background: linear-gradient(135deg, #fff1e1 0%, #f3d1a9 100%);
+  color: #5f2c10;
+  box-shadow:
+    inset 0 0 0 1px rgba(187, 111, 60, 0.28),
+    0 10px 22px rgba(186, 119, 73, 0.16);
+  transform: translateY(-1px);
+}
+
+.message__action--edit:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px rgba(187, 111, 60, 0.32),
+    0 0 0 3px rgba(215, 142, 95, 0.24),
+    0 10px 22px rgba(186, 119, 73, 0.16);
+}
+
+.message__action--danger {
+  color: #a03131;
+}
+
+.message__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(780px, 100%);
+}
+
+.message__editor textarea {
+  width: 100%;
+  min-height: 96px;
+  box-sizing: border-box;
+  border: 1px solid #d9d6cf;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 12px 14px;
+  font: inherit;
+  color: #171717;
+  resize: vertical;
+}
+
+.message__editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .message__attachments {
   display: flex;
   flex-wrap: wrap;

@@ -1,501 +1,789 @@
-import { BrowserWindow as e, app as t, ipcMain as n } from "electron";
-import { dirname as r, join as i } from "node:path";
-import { fileURLToPath as a } from "node:url";
-import { randomUUID as o } from "node:crypto";
-import { existsSync as s, mkdirSync as c, readFileSync as l, writeFileSync as u } from "node:fs";
-import { DatabaseSync as d } from "node:sqlite";
-import { createRequire as f } from "node:module";
+import { BrowserWindow, app, ipcMain } from "electron";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
 //#region src/main/database.ts
-var p = 0;
-function m() {
-	return p += 1, `${(/* @__PURE__ */ new Date()).toISOString()}-${p.toString().padStart(6, "0")}`;
+var timestampCounter = 0;
+function nowIsoString() {
+	timestampCounter += 1;
+	return `${(/* @__PURE__ */ new Date()).toISOString()}-${timestampCounter.toString().padStart(6, "0")}`;
 }
-function h(e) {
-	return e.replace(/\/+$/, "");
+function normalizeBaseUrl$2(baseUrl) {
+	return baseUrl.replace(/\/+$/, "");
 }
-function g(e) {
-	let t = h(e).toLowerCase();
-	return t.includes("openrouter.ai") ? {
+function inferLegacyProvider(baseUrl) {
+	const normalized = normalizeBaseUrl$2(baseUrl).toLowerCase();
+	if (normalized.includes("openrouter.ai")) return {
 		name: "OpenRouter",
 		providerType: "openrouter"
-	} : t.includes("anthropic.com") ? {
+	};
+	if (normalized.includes("anthropic.com")) return {
 		name: "Anthropic",
 		providerType: "anthropic"
-	} : !t || t.includes("openai.com") ? {
+	};
+	if (!normalized || normalized.includes("openai.com")) return {
 		name: "OpenAI",
 		providerType: "openai"
-	} : {
+	};
+	return {
 		name: "已迁移供应商",
 		providerType: "custom"
 	};
 }
-function _(e) {
-	let t = JSON.parse(e);
-	return t.length > 0 ? t : void 0;
+function parseAttachments(value) {
+	const parsed = JSON.parse(value);
+	return parsed.length > 0 ? parsed : void 0;
 }
-function v(e) {
-	return JSON.stringify(e ?? []);
+function serializeAttachments(attachments) {
+	return JSON.stringify(attachments ?? []);
 }
-function y(e, t) {
+function toConversation(record, messages) {
 	return {
-		id: e.id,
-		title: e.title,
-		messages: t
+		id: record.id,
+		title: record.title,
+		messages
 	};
 }
-var b = class {
+var AppDatabase = class {
 	database;
-	constructor(e) {
-		this.database = new d(e.databasePath), this.database.exec("PRAGMA foreign_keys = ON"), this.database.exec("\n      CREATE TABLE IF NOT EXISTS providers (\n        id TEXT PRIMARY KEY,\n        name TEXT NOT NULL,\n        provider_type TEXT NOT NULL,\n        base_url TEXT NOT NULL,\n        api_key TEXT NOT NULL,\n        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),\n        created_at TEXT NOT NULL,\n        updated_at TEXT NOT NULL\n      );\n\n      CREATE TABLE IF NOT EXISTS provider_models (\n        id TEXT PRIMARY KEY,\n        provider_id TEXT NOT NULL,\n        model_key TEXT NOT NULL,\n        display_name TEXT NOT NULL,\n        description TEXT NOT NULL DEFAULT '',\n        context_window INTEGER,\n        max_output_tokens INTEGER,\n        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),\n        sort_order INTEGER NOT NULL DEFAULT 0,\n        supports_streaming INTEGER NOT NULL DEFAULT 1 CHECK (supports_streaming IN (0, 1)),\n        raw_metadata_json TEXT NOT NULL DEFAULT '{}',\n        created_at TEXT NOT NULL,\n        updated_at TEXT NOT NULL,\n        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,\n        UNIQUE (provider_id, model_key)\n      );\n\n      CREATE TABLE IF NOT EXISTS provider_model_capabilities (\n        provider_model_id TEXT NOT NULL,\n        capability TEXT NOT NULL,\n        PRIMARY KEY (provider_model_id, capability),\n        FOREIGN KEY (provider_model_id) REFERENCES provider_models(id) ON DELETE CASCADE\n      );\n\n      CREATE TABLE IF NOT EXISTS app_preferences (\n        id INTEGER PRIMARY KEY CHECK (id = 1),\n        default_provider_id TEXT,\n        default_model_id TEXT,\n        system_prompt TEXT NOT NULL DEFAULT '',\n        FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,\n        FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL\n      );\n\n      CREATE TABLE IF NOT EXISTS conversations (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        updated_at TEXT NOT NULL\n      );\n\n      CREATE TABLE IF NOT EXISTS messages (\n        id TEXT PRIMARY KEY,\n        conversation_id TEXT NOT NULL,\n        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),\n        content TEXT NOT NULL,\n        attachments_json TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE\n      );\n\n      CREATE INDEX IF NOT EXISTS provider_models_provider_enabled_sort_idx\n      ON provider_models(provider_id, is_enabled, sort_order ASC, display_name ASC);\n\n      CREATE INDEX IF NOT EXISTS provider_model_capabilities_capability_idx\n      ON provider_model_capabilities(capability, provider_model_id);\n\n      CREATE INDEX IF NOT EXISTS messages_conversation_idx\n      ON messages(conversation_id, created_at, id);\n\n      CREATE INDEX IF NOT EXISTS conversations_updated_idx\n      ON conversations(updated_at DESC, created_at DESC, id);\n    "), this.migrateLegacySettingsTable(), this.database.exec("PRAGMA user_version = 2");
+	constructor(options) {
+		this.database = new DatabaseSync(options.databasePath);
+		this.database.exec("PRAGMA foreign_keys = ON");
+		this.database.exec(`
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider_type TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        model_key TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        context_window INTEGER,
+        max_output_tokens INTEGER,
+        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        supports_streaming INTEGER NOT NULL DEFAULT 1 CHECK (supports_streaming IN (0, 1)),
+        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+        UNIQUE (provider_id, model_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_model_capabilities (
+        provider_model_id TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        PRIMARY KEY (provider_model_id, capability),
+        FOREIGN KEY (provider_model_id) REFERENCES provider_models(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS app_preferences (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        default_provider_id TEXT,
+        default_model_id TEXT,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
+        FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        content TEXT NOT NULL,
+        attachments_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS provider_models_provider_enabled_sort_idx
+      ON provider_models(provider_id, is_enabled, sort_order ASC, display_name ASC);
+
+      CREATE INDEX IF NOT EXISTS provider_model_capabilities_capability_idx
+      ON provider_model_capabilities(capability, provider_model_id);
+
+      CREATE INDEX IF NOT EXISTS messages_conversation_idx
+      ON messages(conversation_id, created_at, id);
+
+      CREATE INDEX IF NOT EXISTS conversations_updated_idx
+      ON conversations(updated_at DESC, created_at DESC, id);
+    `);
+		this.migrateLegacySettingsTable();
+		this.database.exec("PRAGMA user_version = 2");
 	}
 	close() {
 		this.database.close();
 	}
-	tableExists(e) {
-		return !!this.database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(e);
+	tableExists(name) {
+		const row = this.database.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
+		return Boolean(row);
 	}
 	hasProviderCatalog() {
 		return this.database.prepare("SELECT COUNT(*) as count FROM providers").get().count > 0;
 	}
 	migrateLegacySettingsTable() {
 		if (this.hasProviderCatalog() || !this.tableExists("settings")) return;
-		let e = this.database.prepare("SELECT api_key, base_url, model, system_prompt FROM settings WHERE id = 1").get();
-		if (!e) return;
-		let t = "legacy-provider", n = "legacy-model", r = m(), i = g(e.base_url);
+		const row = this.database.prepare("SELECT api_key, base_url, model, system_prompt FROM settings WHERE id = 1").get();
+		if (!row) return;
+		const providerId = "legacy-provider";
+		const modelId = "legacy-model";
+		const timestamp = nowIsoString();
+		const identity = inferLegacyProvider(row.base_url);
 		this.withTransaction(() => {
-			this.database.prepare("\n          INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)\n          VALUES (?, ?, ?, ?, ?, 1, ?, ?)\n        ").run(t, i.name, i.providerType, h(e.base_url), e.api_key, r, r), this.database.prepare("\n          INSERT INTO provider_models (\n            id,\n            provider_id,\n            model_key,\n            display_name,\n            description,\n            context_window,\n            max_output_tokens,\n            is_enabled,\n            sort_order,\n            supports_streaming,\n            raw_metadata_json,\n            created_at,\n            updated_at\n          )\n          VALUES (?, ?, ?, ?, '', NULL, NULL, 1, 0, 1, ?, ?, ?)\n        ").run(n, t, e.model, e.model, JSON.stringify({ source: "legacy-settings-migration" }), r, r), this.database.prepare("\n          INSERT INTO provider_model_capabilities (provider_model_id, capability)\n          VALUES (?, 'text')\n        ").run(n), this.database.prepare("\n          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)\n          VALUES (1, ?, ?, ?)\n        ").run(t, n, e.system_prompt);
+			this.database.prepare(`
+          INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        `).run(providerId, identity.name, identity.providerType, normalizeBaseUrl$2(row.base_url), row.api_key, timestamp, timestamp);
+			this.database.prepare(`
+          INSERT INTO provider_models (
+            id,
+            provider_id,
+            model_key,
+            display_name,
+            description,
+            context_window,
+            max_output_tokens,
+            is_enabled,
+            sort_order,
+            supports_streaming,
+            raw_metadata_json,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, '', NULL, NULL, 1, 0, 1, ?, ?, ?)
+        `).run(modelId, providerId, row.model, row.model, JSON.stringify({ source: "legacy-settings-migration" }), timestamp, timestamp);
+			this.database.prepare(`
+          INSERT INTO provider_model_capabilities (provider_model_id, capability)
+          VALUES (?, 'text')
+        `).run(modelId);
+			this.database.prepare(`
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
+          VALUES (1, ?, ?, ?)
+        `).run(providerId, modelId, row.system_prompt);
 		});
 	}
-	withTransaction(e) {
+	withTransaction(callback) {
 		this.database.exec("BEGIN");
 		try {
-			e(), this.database.exec("COMMIT");
-		} catch (e) {
-			throw this.database.exec("ROLLBACK"), e;
+			callback();
+			this.database.exec("COMMIT");
+		} catch (error) {
+			this.database.exec("ROLLBACK");
+			throw error;
 		}
 	}
 	getSettings() {
-		let e = this.database.prepare("\n        SELECT id, name, provider_type, base_url, api_key, is_enabled\n        FROM providers\n        ORDER BY created_at ASC, id ASC\n      ").all();
-		if (e.length === 0) return;
-		let t = this.database.prepare("\n        SELECT\n          id,\n          provider_id,\n          model_key,\n          display_name,\n          description,\n          context_window,\n          max_output_tokens,\n          is_enabled,\n          sort_order,\n          supports_streaming,\n          raw_metadata_json\n        FROM provider_models\n        ORDER BY provider_id ASC, sort_order ASC, display_name ASC, id ASC\n      ").all(), n = this.database.prepare("\n        SELECT provider_model_id, capability\n        FROM provider_model_capabilities\n        ORDER BY provider_model_id ASC, rowid ASC\n      ").all(), r = this.database.prepare("\n        SELECT default_provider_id, default_model_id, system_prompt\n        FROM app_preferences\n        WHERE id = 1\n      ").get(), i = /* @__PURE__ */ new Map();
-		for (let e of n) {
-			let t = i.get(e.provider_model_id) ?? [];
-			t.push(e.capability), i.set(e.provider_model_id, t);
+		const providers = this.database.prepare(`
+        SELECT id, name, provider_type, base_url, api_key, is_enabled
+        FROM providers
+        ORDER BY created_at ASC, id ASC
+      `).all();
+		if (providers.length === 0) return;
+		const models = this.database.prepare(`
+        SELECT
+          id,
+          provider_id,
+          model_key,
+          display_name,
+          description,
+          context_window,
+          max_output_tokens,
+          is_enabled,
+          sort_order,
+          supports_streaming,
+          raw_metadata_json
+        FROM provider_models
+        ORDER BY provider_id ASC, sort_order ASC, display_name ASC, id ASC
+      `).all();
+		const capabilities = this.database.prepare(`
+        SELECT provider_model_id, capability
+        FROM provider_model_capabilities
+        ORDER BY provider_model_id ASC, rowid ASC
+      `).all();
+		const preferences = this.database.prepare(`
+        SELECT default_provider_id, default_model_id, system_prompt
+        FROM app_preferences
+        WHERE id = 1
+      `).get();
+		const capabilitiesByModelId = /* @__PURE__ */ new Map();
+		for (const row of capabilities) {
+			const bucket = capabilitiesByModelId.get(row.provider_model_id) ?? [];
+			bucket.push(row.capability);
+			capabilitiesByModelId.set(row.provider_model_id, bucket);
 		}
 		return {
-			providers: e.map((e) => ({
-				id: e.id,
-				name: e.name,
-				providerType: e.provider_type,
-				baseUrl: e.base_url,
-				apiKey: e.api_key,
-				isEnabled: e.is_enabled === 1
+			providers: providers.map((provider) => ({
+				id: provider.id,
+				name: provider.name,
+				providerType: provider.provider_type,
+				baseUrl: provider.base_url,
+				apiKey: provider.api_key,
+				isEnabled: provider.is_enabled === 1
 			})),
-			models: t.map((e) => ({
-				id: e.id,
-				providerId: e.provider_id,
-				modelKey: e.model_key,
-				displayName: e.display_name,
-				description: e.description,
-				...e.context_window === null ? {} : { contextWindow: e.context_window },
-				...e.max_output_tokens === null ? {} : { maxOutputTokens: e.max_output_tokens },
-				isEnabled: e.is_enabled === 1,
-				sortOrder: e.sort_order,
-				supportsStreaming: e.supports_streaming === 1,
-				capabilities: i.get(e.id) ?? [],
-				rawMetadata: JSON.parse(e.raw_metadata_json)
+			models: models.map((model) => ({
+				id: model.id,
+				providerId: model.provider_id,
+				modelKey: model.model_key,
+				displayName: model.display_name,
+				description: model.description,
+				...model.context_window === null ? {} : { contextWindow: model.context_window },
+				...model.max_output_tokens === null ? {} : { maxOutputTokens: model.max_output_tokens },
+				isEnabled: model.is_enabled === 1,
+				sortOrder: model.sort_order,
+				supportsStreaming: model.supports_streaming === 1,
+				capabilities: capabilitiesByModelId.get(model.id) ?? [],
+				rawMetadata: JSON.parse(model.raw_metadata_json)
 			})),
 			preferences: {
-				defaultProviderId: r?.default_provider_id ?? null,
-				defaultModelId: r?.default_model_id ?? null,
-				systemPrompt: r?.system_prompt ?? ""
+				defaultProviderId: preferences?.default_provider_id ?? null,
+				defaultModelId: preferences?.default_model_id ?? null,
+				systemPrompt: preferences?.system_prompt ?? ""
 			}
 		};
 	}
-	setSettings(e) {
-		let t = new Set(e.providers.map((e) => e.id)), n = new Set(e.models.map((e) => e.id)), r = e.preferences.defaultProviderId, i = e.preferences.defaultModelId;
-		if (r && !t.has(r)) throw Error(`Default provider not found: ${r}`);
-		if (i && !n.has(i)) throw Error(`Default model not found: ${i}`);
-		if (r && i && e.models.find((e) => e.id === i)?.providerId !== r) throw Error("Default model must belong to the default provider.");
+	setSettings(settings) {
+		const providerIds = new Set(settings.providers.map((provider) => provider.id));
+		const modelIds = new Set(settings.models.map((model) => model.id));
+		const defaultProviderId = settings.preferences.defaultProviderId;
+		const defaultModelId = settings.preferences.defaultModelId;
+		if (defaultProviderId && !providerIds.has(defaultProviderId)) throw new Error(`Default provider not found: ${defaultProviderId}`);
+		if (defaultModelId && !modelIds.has(defaultModelId)) throw new Error(`Default model not found: ${defaultModelId}`);
+		if (defaultProviderId && defaultModelId) {
+			if (settings.models.find((model) => model.id === defaultModelId)?.providerId !== defaultProviderId) throw new Error("Default model must belong to the default provider.");
+		}
 		this.withTransaction(() => {
-			this.database.prepare("DELETE FROM app_preferences WHERE id = 1").run(), this.database.prepare("DELETE FROM provider_model_capabilities").run(), this.database.prepare("DELETE FROM provider_models").run(), this.database.prepare("DELETE FROM providers").run();
-			let t = this.database.prepare("\n        INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?)\n      ");
-			for (let n of e.providers) {
-				let e = m();
-				t.run(n.id, n.name, n.providerType, h(n.baseUrl), n.apiKey, n.isEnabled ? 1 : 0, e, e);
+			this.database.prepare("DELETE FROM app_preferences WHERE id = 1").run();
+			this.database.prepare("DELETE FROM provider_model_capabilities").run();
+			this.database.prepare("DELETE FROM provider_models").run();
+			this.database.prepare("DELETE FROM providers").run();
+			const insertProvider = this.database.prepare(`
+        INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+			for (const provider of settings.providers) {
+				const timestamp = nowIsoString();
+				insertProvider.run(provider.id, provider.name, provider.providerType, normalizeBaseUrl$2(provider.baseUrl), provider.apiKey, provider.isEnabled ? 1 : 0, timestamp, timestamp);
 			}
-			let n = this.database.prepare("\n        INSERT INTO provider_models (\n          id,\n          provider_id,\n          model_key,\n          display_name,\n          description,\n          context_window,\n          max_output_tokens,\n          is_enabled,\n          sort_order,\n          supports_streaming,\n          raw_metadata_json,\n          created_at,\n          updated_at\n        )\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n      "), a = this.database.prepare("\n        INSERT INTO provider_model_capabilities (provider_model_id, capability)\n        VALUES (?, ?)\n      ");
-			for (let t of e.models) {
-				let e = m();
-				n.run(t.id, t.providerId, t.modelKey, t.displayName, t.description, t.contextWindow ?? null, t.maxOutputTokens ?? null, t.isEnabled ? 1 : 0, t.sortOrder, t.supportsStreaming ? 1 : 0, JSON.stringify(t.rawMetadata ?? {}), e, e);
-				for (let e of t.capabilities) a.run(t.id, e);
+			const insertModel = this.database.prepare(`
+        INSERT INTO provider_models (
+          id,
+          provider_id,
+          model_key,
+          display_name,
+          description,
+          context_window,
+          max_output_tokens,
+          is_enabled,
+          sort_order,
+          supports_streaming,
+          raw_metadata_json,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+			const insertCapability = this.database.prepare(`
+        INSERT INTO provider_model_capabilities (provider_model_id, capability)
+        VALUES (?, ?)
+      `);
+			for (const model of settings.models) {
+				const timestamp = nowIsoString();
+				insertModel.run(model.id, model.providerId, model.modelKey, model.displayName, model.description, model.contextWindow ?? null, model.maxOutputTokens ?? null, model.isEnabled ? 1 : 0, model.sortOrder, model.supportsStreaming ? 1 : 0, JSON.stringify(model.rawMetadata ?? {}), timestamp, timestamp);
+				for (const capability of model.capabilities) insertCapability.run(model.id, capability);
 			}
-			this.database.prepare("\n          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)\n          VALUES (1, ?, ?, ?)\n        ").run(r, i, e.preferences.systemPrompt);
+			this.database.prepare(`
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
+          VALUES (1, ?, ?, ?)
+        `).run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt);
 		});
 	}
 	listConversations() {
-		let e = this.database.prepare("\n        SELECT id, title, created_at, updated_at\n        FROM conversations\n        ORDER BY updated_at DESC, created_at DESC, id ASC\n      ").all(), t = this.database.prepare("\n        SELECT id, conversation_id, role, content, attachments_json, created_at\n        FROM messages\n        ORDER BY created_at ASC, id ASC\n      ").all(), n = /* @__PURE__ */ new Map();
-		for (let e of t) {
-			let t = n.get(e.conversation_id) ?? [], r = _(e.attachments_json);
-			t.push({
-				id: e.id,
-				role: e.role,
-				content: e.content,
-				...r ? { attachments: r } : {}
-			}), n.set(e.conversation_id, t);
+		const conversations = this.database.prepare(`
+        SELECT id, title, created_at, updated_at
+        FROM conversations
+        ORDER BY updated_at DESC, created_at DESC, id ASC
+      `).all();
+		const messages = this.database.prepare(`
+        SELECT id, conversation_id, role, content, attachments_json, created_at
+        FROM messages
+        ORDER BY created_at ASC, id ASC
+      `).all();
+		const messagesByConversation = /* @__PURE__ */ new Map();
+		for (const message of messages) {
+			const bucket = messagesByConversation.get(message.conversation_id) ?? [];
+			const attachments = parseAttachments(message.attachments_json);
+			bucket.push({
+				id: message.id,
+				role: message.role,
+				content: message.content,
+				...attachments ? { attachments } : {}
+			});
+			messagesByConversation.set(message.conversation_id, bucket);
 		}
-		return e.map((e) => y(e, n.get(e.id) ?? []));
+		return conversations.map((conversation) => toConversation(conversation, messagesByConversation.get(conversation.id) ?? []));
 	}
-	createConversation(e) {
-		let t = m();
-		return this.database.prepare("\n        INSERT INTO conversations (id, title, created_at, updated_at)\n        VALUES (?, ?, ?, ?)\n      ").run(e.id, e.title, t, t), {
-			id: e.id,
-			title: e.title,
+	createConversation(input) {
+		const timestamp = nowIsoString();
+		this.database.prepare(`
+        INSERT INTO conversations (id, title, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+      `).run(input.id, input.title, timestamp, timestamp);
+		return {
+			id: input.id,
+			title: input.title,
 			messages: []
 		};
 	}
-	renameConversation(e, t) {
-		this.database.prepare("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?").run(t, m(), e);
-		let n = this.listConversations().find((t) => t.id === e);
-		if (!n) throw Error(`Conversation not found: ${e}`);
-		return n;
+	renameConversation(id, title) {
+		this.database.prepare("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?").run(title, nowIsoString(), id);
+		const conversation = this.listConversations().find((item) => item.id === id);
+		if (!conversation) throw new Error(`Conversation not found: ${id}`);
+		return conversation;
 	}
-	deleteConversation(e) {
-		this.database.prepare("DELETE FROM conversations WHERE id = ?").run(e);
+	deleteConversation(id) {
+		this.database.prepare("DELETE FROM conversations WHERE id = ?").run(id);
 	}
-	createMessage(e, t) {
-		let n = m();
-		return this.database.prepare("\n        INSERT INTO messages (id, conversation_id, role, content, attachments_json, created_at)\n        VALUES (?, ?, ?, ?, ?, ?)\n      ").run(t.id, e, t.role, t.content, v(t.attachments), n), this.database.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(n, e), t;
+	updateMessage(conversationId, messageId, content) {
+		const timestamp = nowIsoString();
+		if (this.database.prepare(`
+          UPDATE messages
+          SET content = ?
+          WHERE id = ? AND conversation_id = ?
+        `).run(content, messageId, conversationId).changes === 0) throw new Error(`Message not found: ${messageId}`);
+		this.database.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(timestamp, conversationId);
+	}
+	deleteMessagesFrom(conversationId, messageId) {
+		const target = this.database.prepare(`
+          SELECT created_at
+          FROM messages
+          WHERE id = ? AND conversation_id = ?
+        `).get(messageId, conversationId);
+		if (!target) throw new Error(`Message not found: ${messageId}`);
+		this.database.prepare(`
+          DELETE FROM messages
+          WHERE conversation_id = ? AND created_at >= ?
+        `).run(conversationId, target.created_at);
+		this.database.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(nowIsoString(), conversationId);
+	}
+	createMessage(conversationId, message) {
+		const timestamp = nowIsoString();
+		this.database.prepare(`
+        INSERT INTO messages (id, conversation_id, role, content, attachments_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(message.id, conversationId, message.role, message.content, serializeAttachments(message.attachments), timestamp);
+		this.database.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(timestamp, conversationId);
+		return message;
 	}
 };
 //#endregion
 //#region src/main/openai.ts
-function x(e) {
-	return e.replace(/\/+$/, "");
+function normalizeBaseUrl$1(baseUrl) {
+	return baseUrl.replace(/\/+$/, "");
 }
-function S(e, t) {
-	let n = [];
-	e.systemPrompt.trim() && n.push({
+function buildChatRequest(settings, messages) {
+	const payloadMessages = [];
+	if (settings.systemPrompt.trim()) payloadMessages.push({
 		role: "system",
-		content: e.systemPrompt.trim()
+		content: settings.systemPrompt.trim()
 	});
-	for (let e of t) {
-		let t = (e.attachments ?? []).filter((e) => e.kind === "image" && e.dataUrl);
-		if (t.length > 0) {
-			let r = [], i = C(e);
-			i && r.push({
+	for (const message of messages) {
+		const imageAttachments = (message.attachments ?? []).filter((att) => att.kind === "image" && att.dataUrl);
+		if (imageAttachments.length > 0) {
+			const parts = [];
+			const textContent = formatMessageContent(message);
+			if (textContent) parts.push({
 				type: "text",
-				text: i
+				text: textContent
 			});
-			for (let e of t) r.push({
+			for (const att of imageAttachments) parts.push({
 				type: "image_url",
-				image_url: { url: e.dataUrl }
+				image_url: { url: att.dataUrl }
 			});
-			n.push({
-				role: e.role,
-				content: r
+			payloadMessages.push({
+				role: message.role,
+				content: parts
 			});
-		} else n.push({
-			role: e.role,
-			content: C(e)
+		} else payloadMessages.push({
+			role: message.role,
+			content: formatMessageContent(message)
 		});
 	}
 	return {
-		model: e.model,
-		messages: n
+		model: settings.model,
+		messages: payloadMessages
 	};
 }
-function C(e) {
-	if (!e.attachments?.length) return e.content;
-	let t = e.attachments.map((e) => `- ${e.name} (${e.kind})`);
-	return e.content ? `Attachments:\n${t.join("\n")}\n\n${e.content}` : `Attachments:\n${t.join("\n")}`;
+function formatMessageContent(message) {
+	if (!message.attachments?.length) return message.content;
+	const attachmentLines = message.attachments.map((attachment) => `- ${attachment.name} (${attachment.kind})`);
+	if (!message.content) return `Attachments:\n${attachmentLines.join("\n")}`;
+	return `Attachments:\n${attachmentLines.join("\n")}\n\n${message.content}`;
 }
-async function* w(e, t, n = fetch) {
-	if (!e.apiKey.trim()) throw Error("API key is required before sending a message.");
-	let r = {
-		...S(e, t),
-		stream: !0
-	}, i = await n(`${x(e.baseUrl)}/chat/completions`, {
+async function* streamChatRequest(settings, messages, fetchImpl = fetch) {
+	if (!settings.apiKey.trim()) throw new Error("API key is required before sending a message.");
+	const body = {
+		...buildChatRequest(settings, messages),
+		stream: true
+	};
+	const response = await fetchImpl(`${normalizeBaseUrl$1(settings.baseUrl)}/chat/completions`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: `Bearer ${e.apiKey}`
+			Authorization: `Bearer ${settings.apiKey}`
 		},
-		body: JSON.stringify(r)
+		body: JSON.stringify(body)
 	});
-	if (!i.ok) {
-		let e = await i.json();
-		throw Error(e.error?.message ?? "The chat request failed.");
+	if (!response.ok) {
+		const data = await response.json();
+		throw new Error(data.error?.message ?? "The chat request failed.");
 	}
-	if (!i.body) throw Error("The response body is empty.");
-	let a = i.body.getReader(), o = new TextDecoder(), s = "";
+	if (!response.body) throw new Error("The response body is empty.");
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
 	try {
-		for (;;) {
-			let { done: e, value: t } = await a.read();
-			if (e) break;
-			s += o.decode(t, { stream: !0 });
-			let n = s.split("\n");
-			s = n.pop() ?? "";
-			for (let e of n) {
-				let t = e.trim();
-				if (!t || !t.startsWith("data: ")) continue;
-				let n = t.slice(6);
-				if (n === "[DONE]") return;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed || !trimmed.startsWith("data: ")) continue;
+				const payload = trimmed.slice(6);
+				if (payload === "[DONE]") return;
 				try {
-					let e = JSON.parse(n).choices?.[0]?.delta?.content;
-					e && (yield e);
+					const content = JSON.parse(payload).choices?.[0]?.delta?.content;
+					if (content) yield content;
 				} catch {}
 			}
 		}
 	} finally {
-		a.releaseLock();
+		reader.releaseLock();
 	}
 }
-async function T(e, t, n = fetch) {
-	if (!e.apiKey.trim()) throw Error("API key is required before sending a message.");
-	let r = await n(`${x(e.baseUrl)}/chat/completions`, {
+async function sendChatRequest(settings, messages, fetchImpl = fetch) {
+	if (!settings.apiKey.trim()) throw new Error("API key is required before sending a message.");
+	const response = await fetchImpl(`${normalizeBaseUrl$1(settings.baseUrl)}/chat/completions`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: `Bearer ${e.apiKey}`
+			Authorization: `Bearer ${settings.apiKey}`
 		},
-		body: JSON.stringify(S(e, t))
-	}), i = await r.json();
-	if (!r.ok) throw Error(i.error?.message ?? "The chat request failed.");
-	let a = i.choices?.[0]?.message?.content?.trim();
-	if (!a) throw Error("The model response was empty.");
-	return a;
+		body: JSON.stringify(buildChatRequest(settings, messages))
+	});
+	const data = await response.json();
+	if (!response.ok) throw new Error(data.error?.message ?? "The chat request failed.");
+	const content = data.choices?.[0]?.message?.content?.trim();
+	if (!content) throw new Error("The model response was empty.");
+	return content;
 }
-async function E(e, t = fetch) {
-	if (!e.apiKey.trim()) throw Error("API key is required before detecting models.");
-	let n = await t(`${x(e.baseUrl)}/models`, {
+async function listAvailableModels(settings, fetchImpl = fetch) {
+	if (!settings.apiKey.trim()) throw new Error("API key is required before detecting models.");
+	const response = await fetchImpl(`${normalizeBaseUrl$1(settings.baseUrl)}/models`, {
 		method: "GET",
-		headers: { Authorization: `Bearer ${e.apiKey}` }
-	}), r = await n.json();
-	if (!n.ok) throw Error(r.error?.message ?? "The model discovery request failed.");
-	return (r.data ?? []).map((e) => e.id?.trim() ?? "").filter((e) => e.length > 0);
+		headers: { Authorization: `Bearer ${settings.apiKey}` }
+	});
+	const data = await response.json();
+	if (!response.ok) throw new Error(data.error?.message ?? "The model discovery request failed.");
+	return (data.data ?? []).map((item) => item.id?.trim() ?? "").filter((id) => id.length > 0);
 }
 //#endregion
 //#region src/main/settings.ts
-var D = "provider-openai", O = "model-openai-gpt-4o-mini", k = {
+var defaultProviderId = "provider-openai";
+var defaultModelId = "model-openai-gpt-4o-mini";
+var defaultSettings = {
 	providers: [{
-		id: D,
+		id: defaultProviderId,
 		name: "OpenAI",
 		providerType: "openai",
 		baseUrl: "https://api.openai.com/v1",
 		apiKey: "",
-		isEnabled: !0
+		isEnabled: true
 	}],
 	models: [{
-		id: O,
-		providerId: D,
+		id: defaultModelId,
+		providerId: defaultProviderId,
 		modelKey: "gpt-4o-mini",
 		displayName: "gpt-4o-mini",
 		description: "",
-		isEnabled: !0,
+		isEnabled: true,
 		sortOrder: 0,
-		supportsStreaming: !0,
+		supportsStreaming: true,
 		capabilities: ["text"],
 		rawMetadata: {}
 	}],
 	preferences: {
-		defaultProviderId: D,
-		defaultModelId: O,
+		defaultProviderId,
+		defaultModelId,
 		systemPrompt: ""
 	}
-}, A = f(import.meta.url);
-function j(e) {
-	return e.replace(/\/+$/, "");
+};
+var require = createRequire(import.meta.url);
+function normalizeBaseUrl(baseUrl) {
+	return baseUrl.replace(/\/+$/, "");
 }
-function M(e) {
-	let t = j(e).toLowerCase();
-	return t.includes("openrouter.ai") ? {
+function inferProviderIdentity(baseUrl) {
+	const normalized = normalizeBaseUrl(baseUrl).toLowerCase();
+	if (normalized.includes("openrouter.ai")) return {
 		name: "OpenRouter",
 		providerType: "openrouter"
-	} : t.includes("anthropic.com") ? {
+	};
+	if (normalized.includes("anthropic.com")) return {
 		name: "Anthropic",
 		providerType: "anthropic"
-	} : !t || t.includes("openai.com") ? {
+	};
+	if (!normalized || normalized.includes("openai.com")) return {
 		name: "OpenAI",
 		providerType: "openai"
-	} : {
+	};
+	return {
 		name: "已迁移供应商",
 		providerType: "custom"
 	};
 }
-function N(e) {
+function mergeSettings(partial) {
 	return {
-		apiKey: e?.apiKey ?? "",
-		baseUrl: j(e?.baseUrl ?? "https://api.openai.com/v1"),
-		model: e?.model ?? "gpt-4o-mini",
-		systemPrompt: e?.systemPrompt ?? ""
+		apiKey: partial?.apiKey ?? "",
+		baseUrl: normalizeBaseUrl(partial?.baseUrl ?? "https://api.openai.com/v1"),
+		model: partial?.model ?? "gpt-4o-mini",
+		systemPrompt: partial?.systemPrompt ?? ""
 	};
 }
-function P(e) {
-	let t = N(e), n = o(), r = o(), i = M(t.baseUrl);
+function createSettingsFromLegacy(partial) {
+	const legacy = mergeSettings(partial);
+	const providerId = randomUUID();
+	const modelId = randomUUID();
+	const providerIdentity = inferProviderIdentity(legacy.baseUrl);
 	return {
 		providers: [{
-			id: n,
-			name: i.name,
-			providerType: i.providerType,
-			baseUrl: t.baseUrl,
-			apiKey: t.apiKey,
-			isEnabled: !0
+			id: providerId,
+			name: providerIdentity.name,
+			providerType: providerIdentity.providerType,
+			baseUrl: legacy.baseUrl,
+			apiKey: legacy.apiKey,
+			isEnabled: true
 		}],
 		models: [{
-			id: r,
-			providerId: n,
-			modelKey: t.model,
-			displayName: t.model,
+			id: modelId,
+			providerId,
+			modelKey: legacy.model,
+			displayName: legacy.model,
 			description: "",
-			isEnabled: !0,
+			isEnabled: true,
 			sortOrder: 0,
-			supportsStreaming: !0,
+			supportsStreaming: true,
 			capabilities: ["text"],
 			rawMetadata: { source: "legacy-settings-migration" }
 		}],
 		preferences: {
-			defaultProviderId: n,
-			defaultModelId: r,
-			systemPrompt: t.systemPrompt
+			defaultProviderId: providerId,
+			defaultModelId: modelId,
+			systemPrompt: legacy.systemPrompt
 		}
 	};
 }
-function F(e) {
+function normalizeProvider(provider) {
 	return {
-		...e,
-		name: e.name.trim() || "未命名供应商",
-		providerType: e.providerType.trim() || "custom",
-		baseUrl: j(e.baseUrl.trim()),
-		apiKey: e.apiKey,
-		isEnabled: e.isEnabled !== !1
+		...provider,
+		name: provider.name.trim() || "未命名供应商",
+		providerType: provider.providerType.trim() || "custom",
+		baseUrl: normalizeBaseUrl(provider.baseUrl.trim()),
+		apiKey: provider.apiKey,
+		isEnabled: provider.isEnabled !== false
 	};
 }
-function I(e) {
+function normalizeModel(model) {
 	return {
-		...e,
-		modelKey: e.modelKey.trim(),
-		displayName: e.displayName.trim() || e.modelKey.trim() || "未命名模型",
-		description: e.description ?? "",
-		isEnabled: e.isEnabled !== !1,
-		sortOrder: Number.isFinite(e.sortOrder) ? e.sortOrder : 0,
-		supportsStreaming: e.supportsStreaming !== !1,
-		capabilities: Array.from(new Set(e.capabilities)),
-		rawMetadata: e.rawMetadata ?? {},
-		contextWindow: e.contextWindow,
-		maxOutputTokens: e.maxOutputTokens
+		...model,
+		modelKey: model.modelKey.trim(),
+		displayName: model.displayName.trim() || model.modelKey.trim() || "未命名模型",
+		description: model.description ?? "",
+		isEnabled: model.isEnabled !== false,
+		sortOrder: Number.isFinite(model.sortOrder) ? model.sortOrder : 0,
+		supportsStreaming: model.supportsStreaming !== false,
+		capabilities: Array.from(new Set(model.capabilities)),
+		rawMetadata: model.rawMetadata ?? {},
+		contextWindow: model.contextWindow,
+		maxOutputTokens: model.maxOutputTokens
 	};
 }
-function L(e) {
-	let t = e.providers.map(F), n = new Set(t.map((e) => e.id)), r = e.models.filter((e) => n.has(e.providerId)).map(I), i = /* @__PURE__ */ new Map();
-	for (let e of r) {
-		let t = i.get(e.providerId) ?? [];
-		t.push(e), i.set(e.providerId, t);
+function normalizeAppSettings(settings) {
+	const providers = settings.providers.map(normalizeProvider);
+	const providerIds = new Set(providers.map((provider) => provider.id));
+	const models = settings.models.filter((model) => providerIds.has(model.providerId)).map(normalizeModel);
+	const modelsByProvider = /* @__PURE__ */ new Map();
+	for (const model of models) {
+		const bucket = modelsByProvider.get(model.providerId) ?? [];
+		bucket.push(model);
+		modelsByProvider.set(model.providerId, bucket);
 	}
-	let a = n.has(e.preferences.defaultProviderId ?? "") ? e.preferences.defaultProviderId : t[0]?.id ?? null, o = a ? i.get(a) ?? [] : [];
+	const defaultProviderId = providerIds.has(settings.preferences.defaultProviderId ?? "") ? settings.preferences.defaultProviderId : providers[0]?.id ?? null;
+	const providerModels = defaultProviderId ? modelsByProvider.get(defaultProviderId) ?? [] : [];
 	return {
-		providers: t,
-		models: r,
+		providers,
+		models,
 		preferences: {
-			defaultProviderId: a,
-			defaultModelId: o.some((t) => t.id === e.preferences.defaultModelId) ? e.preferences.defaultModelId : o[0]?.id ?? null,
-			systemPrompt: e.preferences.systemPrompt ?? ""
+			defaultProviderId,
+			defaultModelId: providerModels.some((model) => model.id === settings.preferences.defaultModelId) ? settings.preferences.defaultModelId : providerModels[0]?.id ?? null,
+			systemPrompt: settings.preferences.systemPrompt ?? ""
 		}
 	};
 }
-function R() {
-	let e = A("electron-store").default, t = new e({
+function createLegacySettingsStore() {
+	const ElectronStore = require("electron-store").default;
+	const store = new ElectronStore({
 		name: "settings",
 		projectName: "tina",
-		defaults: { settings: N(void 0) }
+		defaults: { settings: mergeSettings(void 0) }
 	});
 	return { get() {
-		return t.get("settings");
+		return store.get("settings");
 	} };
 }
-var z = class {
+var SettingsStore = class {
 	database;
 	legacyStore;
-	constructor(e, t = R()) {
-		this.database = e, this.legacyStore = t;
+	constructor(database, legacyStore = createLegacySettingsStore()) {
+		this.database = database;
+		this.legacyStore = legacyStore;
 	}
 	ensureSettings() {
-		let e = this.database.getSettings();
-		if (e) return L(e);
-		let t = this.legacyStore.get(), n = N(t), r = JSON.stringify(n) === JSON.stringify(N(void 0)) ? k : P(t);
-		return this.database.setSettings(r), r;
+		const persisted = this.database.getSettings();
+		if (persisted) return normalizeAppSettings(persisted);
+		const legacy = this.legacyStore.get();
+		const mergedLegacy = mergeSettings(legacy);
+		const migrated = JSON.stringify(mergedLegacy) === JSON.stringify(mergeSettings(void 0)) ? defaultSettings : createSettingsFromLegacy(legacy);
+		this.database.setSettings(migrated);
+		return migrated;
 	}
 	get() {
 		return this.ensureSettings();
 	}
-	set(e) {
-		let t = L(e);
-		return this.database.setSettings(t), t;
+	set(next) {
+		const normalized = normalizeAppSettings(next);
+		this.database.setSettings(normalized);
+		return normalized;
 	}
-}, B, V;
-function H() {
-	let e = i(t.getPath("userData"), "attachments");
-	return s(e) || c(e, { recursive: !0 }), e;
+};
+//#endregion
+//#region src/main/ipc.ts
+var database;
+var settingsStore;
+function getAttachmentsDir() {
+	const dir = join(app.getPath("userData"), "attachments");
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	return dir;
 }
-function U(e) {
-	let t = H();
-	return e.map((e) => e.attachments?.length ? {
-		...e,
-		attachments: e.attachments.map((e) => {
-			if (e.dataUrl || e.kind !== "image") return e;
-			let n = i(t, `${e.id}`);
-			if (!s(n)) return e;
-			let r = l(n).toString("base64"), a = e.name.split(".").pop()?.toLowerCase() ?? "png", o = a === "jpg" || a === "jpeg" ? "image/jpeg" : a === "gif" ? "image/gif" : a === "webp" ? "image/webp" : "image/png";
-			return {
-				...e,
-				dataUrl: `data:${o};base64,${r}`
-			};
-		})
-	} : e);
+function resolveAttachmentDataUrls(messages) {
+	const dir = getAttachmentsDir();
+	return messages.map((msg) => {
+		if (!msg.attachments?.length) return msg;
+		return {
+			...msg,
+			attachments: msg.attachments.map((att) => {
+				if (att.dataUrl || att.kind !== "image") return att;
+				const filePath = join(dir, `${att.id}`);
+				if (!existsSync(filePath)) return att;
+				const data = readFileSync(filePath).toString("base64");
+				const ext = att.name.split(".").pop()?.toLowerCase() ?? "png";
+				const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/png";
+				return {
+					...att,
+					dataUrl: `data:${mime};base64,${data}`
+				};
+			})
+		};
+	});
 }
-function W() {
-	return B ||= new b({ databasePath: i(t.getPath("userData"), "tina.sqlite") }), B;
+function getDatabase() {
+	if (!database) database = new AppDatabase({ databasePath: join(app.getPath("userData"), "tina.sqlite") });
+	return database;
 }
-function G() {
-	return V ||= new z(W()), V;
+function getSettingsStore() {
+	if (!settingsStore) settingsStore = new SettingsStore(getDatabase());
+	return settingsStore;
 }
-function K(e) {
-	let t = e.providers.find((t) => t.id === e.preferences.defaultProviderId), n = e.models.find((t) => t.id === e.preferences.defaultModelId && t.providerId === e.preferences.defaultProviderId);
-	if (!t || !n) throw Error("Default provider and model must be configured before sending a message.");
+function resolveCurrentRequestSettings(settings) {
+	const provider = settings.providers.find((item) => item.id === settings.preferences.defaultProviderId);
+	const model = settings.models.find((item) => item.id === settings.preferences.defaultModelId && item.providerId === settings.preferences.defaultProviderId);
+	if (!provider || !model) throw new Error("Default provider and model must be configured before sending a message.");
 	return {
-		apiKey: t.apiKey,
-		baseUrl: t.baseUrl,
-		model: n.modelKey,
-		systemPrompt: e.preferences.systemPrompt
+		apiKey: provider.apiKey,
+		baseUrl: provider.baseUrl,
+		model: model.modelKey,
+		systemPrompt: settings.preferences.systemPrompt
 	};
 }
-function q() {
-	n.handle("settings:get", () => G().get()), n.handle("settings:list-models", (e, t) => E(t)), n.handle("settings:update", (e, t) => G().set(t)), n.handle("conversations:list", () => W().listConversations()), n.handle("conversations:create", (e, t) => W().createConversation({
-		id: o(),
-		title: t?.trim() || "New thread"
-	})), n.handle("conversations:rename", (e, t, n) => W().renameConversation(t, n)), n.handle("conversations:delete", (e, t) => {
-		W().deleteConversation(t);
-	}), n.handle("messages:create", (e, t, n) => {
-		W().createMessage(t, n);
-	}), n.handle("attachments:store", (e, t, n, r) => {
-		let a = H(), o = r.replace(/^data:[^;]+;base64,/, "");
-		u(i(a, t), Buffer.from(o, "base64"));
-	}), n.handle("attachments:read", (e, t) => {
-		let n = i(H(), t);
-		return s(n) ? l(n).toString("base64") : "";
-	}), n.handle("chat:send", async (e, t) => T(K(G().get()), U(t))), n.handle("chat:stream", async (e, t) => {
-		let n = e.sender, r = U(t);
+function registerIpcHandlers() {
+	ipcMain.handle("settings:get", () => getSettingsStore().get());
+	ipcMain.handle("settings:list-models", (_event, settings) => listAvailableModels(settings));
+	ipcMain.handle("settings:update", (_event, next) => getSettingsStore().set(next));
+	ipcMain.handle("conversations:list", () => getDatabase().listConversations());
+	ipcMain.handle("conversations:create", (_event, title) => getDatabase().createConversation({
+		id: randomUUID(),
+		title: title?.trim() || "New thread"
+	}));
+	ipcMain.handle("conversations:rename", (_event, conversationId, title) => getDatabase().renameConversation(conversationId, title));
+	ipcMain.handle("conversations:delete", (_event, conversationId) => {
+		getDatabase().deleteConversation(conversationId);
+	});
+	ipcMain.handle("messages:create", (_event, conversationId, message) => {
+		getDatabase().createMessage(conversationId, message);
+	});
+	ipcMain.handle("messages:update", (_event, conversationId, messageId, content) => {
+		getDatabase().updateMessage(conversationId, messageId, content);
+	});
+	ipcMain.handle("messages:delete-from", (_event, conversationId, messageId) => {
+		getDatabase().deleteMessagesFrom(conversationId, messageId);
+	});
+	ipcMain.handle("attachments:store", (_event, id, _name, dataUrl) => {
+		const dir = getAttachmentsDir();
+		const base64 = dataUrl.replace(/^data:[^;]+;base64,/, "");
+		writeFileSync(join(dir, id), Buffer.from(base64, "base64"));
+	});
+	ipcMain.handle("attachments:read", (_event, id) => {
+		const filePath = join(getAttachmentsDir(), id);
+		if (!existsSync(filePath)) return "";
+		return readFileSync(filePath).toString("base64");
+	});
+	ipcMain.handle("chat:send", async (_event, messages) => {
+		return sendChatRequest(resolveCurrentRequestSettings(getSettingsStore().get()), resolveAttachmentDataUrls(messages));
+	});
+	ipcMain.handle("chat:stream", async (event, messages) => {
+		const webContents = event.sender;
+		const resolved = resolveAttachmentDataUrls(messages);
 		try {
-			for await (let e of w(K(G().get()), r)) n.send("chat:stream-chunk", e);
-			n.send("chat:stream-end");
-		} catch (e) {
-			n.send("chat:stream-error", e instanceof Error ? e.message : "Stream failed.");
+			for await (const token of streamChatRequest(resolveCurrentRequestSettings(getSettingsStore().get()), resolved)) webContents.send("chat:stream-chunk", token);
+			webContents.send("chat:stream-end");
+		} catch (error) {
+			webContents.send("chat:stream-error", error instanceof Error ? error.message : "Stream failed.");
 		}
 	});
 }
 //#endregion
 //#region src/main/windowConfig.ts
-function J(e) {
+function createWindowOptions(preloadPath) {
 	return {
 		width: 1330,
 		height: 880,
@@ -505,24 +793,29 @@ function J(e) {
 		titleBarStyle: "hiddenInset",
 		backgroundColor: "#ffffff",
 		webPreferences: {
-			preload: i(e, "index.mjs"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: join(preloadPath, "index.mjs"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
 	};
 }
 //#endregion
 //#region src/main/index.ts
-var Y = r(a(import.meta.url));
-function X() {
-	let t = new e(J(Y));
-	return process.env.VITE_DEV_SERVER_URL ? t.loadURL(process.env.VITE_DEV_SERVER_URL) : t.loadFile(i(Y, "../index.html")), t;
+var __dirname = dirname(fileURLToPath(import.meta.url));
+function createMainWindow() {
+	const window = new BrowserWindow(createWindowOptions(__dirname));
+	if (process.env.VITE_DEV_SERVER_URL) window.loadURL(process.env.VITE_DEV_SERVER_URL);
+	else window.loadFile(join(__dirname, "../index.html"));
+	return window;
 }
-t.whenReady().then(() => {
-	q(), X(), t.on("activate", () => {
-		e.getAllWindows().length === 0 && X();
+app.whenReady().then(() => {
+	registerIpcHandlers();
+	createMainWindow();
+	app.on("activate", () => {
+		if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
 	});
-}), t.on("window-all-closed", () => {
-	process.platform !== "darwin" && t.quit();
+});
+app.on("window-all-closed", () => {
+	if (process.platform !== "darwin") app.quit();
 });
 //#endregion
