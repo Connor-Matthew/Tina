@@ -1,35 +1,180 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import './App.css'
-import { Composer } from './renderer/components/Composer'
+import { Composer, type ComposerModelOption } from './renderer/components/Composer'
 import { ConversationView } from './renderer/components/ConversationView'
 import { SettingsPanel } from './renderer/components/SettingsPanel'
 import { Sidebar } from './renderer/components/Sidebar'
 import { downloadConversationMarkdown } from './renderer/lib/conversationExport'
 import { getDesktopApi } from './renderer/lib/electron'
 import { createChatStore } from './renderer/store/chatStore'
-import type { AppSettings, ChatComposerSubmission } from './shared/contracts'
+import type {
+  AppSettings,
+  ChatComposerSubmission,
+  ModelCapability,
+  ModelRequestSettings,
+  ProviderModelSettings,
+  ProviderSettings,
+} from './shared/contracts'
 
 type AppView = 'chat' | 'settings'
 
 const desktop = getDesktopApi()
 
 const fallbackSettings: AppSettings = {
-  apiKey: '',
-  baseUrl: 'https://api.openai.com/v1',
-  model: 'gpt-4o-mini',
-  systemPrompt: '',
+  providers: [
+    {
+      id: 'provider-openai',
+      name: 'OpenAI',
+      providerType: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      isEnabled: true,
+    },
+  ],
+  models: [
+    {
+      id: 'model-openai-gpt-4o-mini',
+      providerId: 'provider-openai',
+      modelKey: 'gpt-4o-mini',
+      displayName: 'GPT-4o mini',
+      description: '',
+      isEnabled: true,
+      sortOrder: 0,
+      supportsStreaming: true,
+      capabilities: ['text'],
+      rawMetadata: {},
+    },
+  ],
+  preferences: {
+    defaultProviderId: 'provider-openai',
+    defaultModelId: 'model-openai-gpt-4o-mini',
+    systemPrompt: '',
+  },
 }
 
-const composerModelOptions = ['gpt-5.4', 'gpt-4.1', 'gpt-4o-mini']
+function createProviderId() {
+  return `provider-${crypto.randomUUID()}`
+}
+
+function createModelId() {
+  return `model-${crypto.randomUUID()}`
+}
 
 function areSettingsEqual(left: AppSettings, right: AppSettings) {
-  return (
-    left.apiKey === right.apiKey &&
-    left.baseUrl === right.baseUrl &&
-    left.model === right.model &&
-    left.systemPrompt === right.systemPrompt
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function getProviderById(settings: AppSettings, providerId: string | null): ProviderSettings | undefined {
+  if (!providerId) {
+    return undefined
+  }
+
+  return settings.providers.find((provider) => provider.id === providerId)
+}
+
+function getModelsForProvider(settings: AppSettings, providerId: string | null): ProviderModelSettings[] {
+  if (!providerId) {
+    return []
+  }
+
+  return settings.models
+    .filter((model) => model.providerId === providerId)
+    .sort((left, right) => {
+      if (left.sortOrder !== right.sortOrder) {
+        return left.sortOrder - right.sortOrder
+      }
+
+      return left.displayName.localeCompare(right.displayName)
+    })
+}
+
+function getDefaultProvider(settings: AppSettings): ProviderSettings | undefined {
+  return getProviderById(settings, settings.preferences.defaultProviderId) ?? settings.providers[0]
+}
+
+function getDefaultModel(settings: AppSettings): ProviderModelSettings | undefined {
+  const defaultProvider = getDefaultProvider(settings)
+  const providerModels = getModelsForProvider(settings, defaultProvider?.id ?? null)
+
+  return providerModels.find((model) => model.id === settings.preferences.defaultModelId) ?? providerModels[0]
+}
+
+function getComposerModelOptions(settings: AppSettings): ComposerModelOption[] {
+  return settings.providers.flatMap((provider) =>
+    getModelsForProvider(settings, provider.id).map((model) => ({
+      id: model.id,
+      label: `${provider.name} / ${model.displayName || model.modelKey}`,
+      selectionLabel: model.modelKey,
+    })),
   )
+}
+
+function resolveSelection(
+  settings: AppSettings,
+  requestedProviderId: string | null,
+  requestedModelId: string | null,
+) {
+  const providerId = getProviderById(settings, requestedProviderId)?.id
+    ?? settings.preferences.defaultProviderId
+    ?? settings.providers[0]?.id
+    ?? null
+  const models = getModelsForProvider(settings, providerId)
+  const defaultModelId = providerId === settings.preferences.defaultProviderId
+    ? settings.preferences.defaultModelId
+    : null
+  const modelId = models.some((model) => model.id === requestedModelId)
+    ? requestedModelId
+    : models.some((model) => model.id === defaultModelId)
+      ? defaultModelId
+      : models[0]?.id ?? null
+
+  return { providerId, modelId }
+}
+
+function buildModelRequestSettings(
+  provider: ProviderSettings | undefined,
+  model: ProviderModelSettings | undefined,
+  systemPrompt: string,
+): ModelRequestSettings | null {
+  if (!provider) {
+    return null
+  }
+
+  return {
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    model: model?.modelKey ?? '',
+    systemPrompt,
+  }
+}
+
+function createProviderDraft(index: number): ProviderSettings {
+  return {
+    id: createProviderId(),
+    name: `供应商 ${index}`,
+    providerType: 'custom',
+    baseUrl: '',
+    apiKey: '',
+    isEnabled: true,
+  }
+}
+
+function createModelDraft(providerId: string, index: number): ProviderModelSettings {
+  const modelKey = `new-model-${index}`
+
+  return {
+    id: createModelId(),
+    providerId,
+    modelKey,
+    displayName: `New Model ${index}`,
+    description: '',
+    isEnabled: true,
+    sortOrder: index - 1,
+    supportsStreaming: true,
+    capabilities: ['text'],
+    rawMetadata: {},
+  }
 }
 
 function App() {
@@ -37,9 +182,15 @@ function App() {
   const [chatState, setChatState] = useState(chatStore.getState())
   const [settings, setSettings] = useState<AppSettings>(fallbackSettings)
   const [persistedSettings, setPersistedSettings] = useState<AppSettings>(fallbackSettings)
-  const [detectedModels, setDetectedModels] = useState<string[]>([])
-  const [isDetectingModels, setIsDetectingModels] = useState(false)
-  const [modelDetectionError, setModelDetectionError] = useState<string | null>(null)
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    fallbackSettings.preferences.defaultProviderId,
+  )
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(
+    fallbackSettings.preferences.defaultModelId,
+  )
+  const [detectedModelsByProvider, setDetectedModelsByProvider] = useState<Record<string, string[]>>({})
+  const [modelDetectionErrors, setModelDetectionErrors] = useState<Record<string, string | null>>({})
+  const [detectingProviderId, setDetectingProviderId] = useState<string | null>(null)
   const [view, setView] = useState<AppView>('chat')
   const [searchValue, setSearchValue] = useState('')
 
@@ -61,8 +212,16 @@ function App() {
         return
       }
 
+      const selection = resolveSelection(
+        nextSettings,
+        nextSettings.preferences.defaultProviderId,
+        nextSettings.preferences.defaultModelId,
+      )
+
       setSettings(nextSettings)
       setPersistedSettings(nextSettings)
+      setSelectedProviderId(selection.providerId)
+      setSelectedModelId(selection.modelId)
 
       if (chatStore.getState().conversations.length === 0) {
         await chatStore.getState().createConversation()
@@ -88,10 +247,27 @@ function App() {
   const activeConversation = chatState.conversations.find(
     (conversation) => conversation.id === chatState.activeConversationId,
   )
+  const activeProvider = getProviderById(settings, selectedProviderId)
+  const providerModels = getModelsForProvider(settings, selectedProviderId)
+  const activeModel = providerModels.find((model) => model.id === selectedModelId) ?? providerModels[0]
+  const defaultProvider = getDefaultProvider(settings)
+  const defaultModel = getDefaultModel(settings)
+  const detectedModels = activeProvider ? detectedModelsByProvider[activeProvider.id] ?? [] : []
+  const modelDetectionError = activeProvider ? modelDetectionErrors[activeProvider.id] ?? null : null
+  const isDetectingModels = detectingProviderId === activeProvider?.id
 
   const hasUnsavedSettings = useMemo(
     () => !areSettingsEqual(settings, persistedSettings),
     [persistedSettings, settings],
+  )
+
+  const composerModelOptions = useMemo(
+    () => getComposerModelOptions(settings),
+    [settings],
+  )
+  const selectedComposerModelOption = useMemo(
+    () => composerModelOptions.find((option) => option.id === defaultModel?.id) ?? null,
+    [composerModelOptions, defaultModel?.id],
   )
 
   async function handleSend(submission: ChatComposerSubmission) {
@@ -102,35 +278,158 @@ function App() {
     )
   }
 
+  function applySettings(nextSettings: AppSettings, nextProviderId?: string | null, nextModelId?: string | null) {
+    const selection = resolveSelection(
+      nextSettings,
+      nextProviderId ?? selectedProviderId,
+      nextModelId ?? selectedModelId,
+    )
+
+    setSettings(nextSettings)
+    setSelectedProviderId(selection.providerId)
+    setSelectedModelId(selection.modelId)
+  }
+
   async function handleSaveSettings() {
     const nextSettings = await desktop.updateSettings(settings)
+    const selection = resolveSelection(nextSettings, selectedProviderId, selectedModelId)
     setSettings(nextSettings)
     setPersistedSettings(nextSettings)
+    setSelectedProviderId(selection.providerId)
+    setSelectedModelId(selection.modelId)
   }
 
   async function handleDetectModels() {
-    setIsDetectingModels(true)
-    setModelDetectionError(null)
+    const requestSettings = buildModelRequestSettings(
+      activeProvider,
+      activeModel ?? defaultModel,
+      settings.preferences.systemPrompt,
+    )
+
+    if (!activeProvider || !requestSettings) {
+      return
+    }
+
+    setDetectingProviderId(activeProvider.id)
+    setModelDetectionErrors((current) => ({
+      ...current,
+      [activeProvider.id]: null,
+    }))
 
     try {
-      const nextModels = await desktop.listAvailableModels(settings)
-      setDetectedModels(nextModels)
+      const nextModels = await desktop.listAvailableModels(requestSettings)
+      setDetectedModelsByProvider((current) => ({
+        ...current,
+        [activeProvider.id]: nextModels,
+      }))
 
       if (nextModels.length === 0) {
-        setModelDetectionError('没有检测到可用模型，请确认供应商是否返回了模型列表。')
+        setModelDetectionErrors((current) => ({
+          ...current,
+          [activeProvider.id]: '没有检测到可用模型，请确认供应商是否返回了模型列表。',
+        }))
       }
     } catch (error) {
-      setDetectedModels([])
-      setModelDetectionError(
-        error instanceof Error ? error.message : '模型检测失败，请稍后再试。',
-      )
+      setDetectedModelsByProvider((current) => ({
+        ...current,
+        [activeProvider.id]: [],
+      }))
+      setModelDetectionErrors((current) => ({
+        ...current,
+        [activeProvider.id]:
+          error instanceof Error ? error.message : '模型检测失败，请稍后再试。',
+      }))
     } finally {
-      setIsDetectingModels(false)
+      setDetectingProviderId(null)
     }
   }
 
   function openSettings() {
     setView('settings')
+  }
+
+  function updateActiveProvider(updater: (provider: ProviderSettings) => ProviderSettings) {
+    if (!activeProvider) {
+      return
+    }
+
+    const nextSettings: AppSettings = {
+      ...settings,
+      providers: settings.providers.map((provider) =>
+        provider.id === activeProvider.id ? updater(provider) : provider,
+      ),
+    }
+
+    applySettings(nextSettings, activeProvider.id, selectedModelId)
+  }
+
+  function updateActiveModel(updater: (model: ProviderModelSettings) => ProviderModelSettings) {
+    if (!activeModel) {
+      return
+    }
+
+    const nextSettings: AppSettings = {
+      ...settings,
+      models: settings.models.map((model) => (model.id === activeModel.id ? updater(model) : model)),
+    }
+
+    applySettings(nextSettings, selectedProviderId, activeModel.id)
+  }
+
+  function handleAddProvider() {
+    const nextProvider = createProviderDraft(settings.providers.length + 1)
+    const nextSettings: AppSettings = {
+      ...settings,
+      providers: [...settings.providers, nextProvider],
+    }
+
+    applySettings(nextSettings, nextProvider.id, null)
+  }
+
+  function handleAddModel() {
+    if (!activeProvider) {
+      return
+    }
+
+    const nextModel = createModelDraft(activeProvider.id, providerModels.length + 1)
+    const nextSettings: AppSettings = {
+      ...settings,
+      models: [...settings.models, nextModel],
+    }
+
+    applySettings(nextSettings, activeProvider.id, nextModel.id)
+  }
+
+  function handleImportDetectedModel(modelKey: string) {
+    if (!activeProvider) {
+      return
+    }
+
+    const existingModel = providerModels.find((model) => model.modelKey === modelKey)
+
+    if (existingModel) {
+      setSelectedModelId(existingModel.id)
+      return
+    }
+
+    const nextModel: ProviderModelSettings = {
+      id: createModelId(),
+      providerId: activeProvider.id,
+      modelKey,
+      displayName: modelKey,
+      description: '',
+      isEnabled: true,
+      sortOrder: providerModels.length,
+      supportsStreaming: true,
+      capabilities: ['text'],
+      rawMetadata: {},
+    }
+    const nextSettings: AppSettings = {
+      ...settings,
+      models: [...settings.models, nextModel],
+    }
+
+    applySettings(nextSettings, activeProvider.id, nextModel.id)
   }
 
   return (
@@ -187,41 +486,138 @@ function App() {
               <Composer
                 disabled={chatState.isSending}
                 modelOptions={composerModelOptions}
-                onModelChange={async (model) => {
-                  setSettings((current) => ({ ...current, model }))
-                  const nextSettings = await desktop.updateSettings({ model })
-                  setSettings(nextSettings)
-                  setPersistedSettings(nextSettings)
+                onModelChange={async (modelId) => {
+                  const selectedComposerModel = settings.models.find((model) => model.id === modelId)
+
+                  if (!selectedComposerModel) {
+                    return
+                  }
+
+                  const nextSettings: AppSettings = {
+                    ...settings,
+                    preferences: {
+                      ...settings.preferences,
+                      defaultProviderId: selectedComposerModel.providerId,
+                      defaultModelId: selectedComposerModel.id,
+                    },
+                  }
+
+                  applySettings(nextSettings, selectedComposerModel.providerId, selectedComposerModel.id)
+                  const persisted = await desktop.updateSettings(nextSettings)
+                  const selection = resolveSelection(
+                    persisted,
+                    selectedComposerModel.providerId,
+                    selectedComposerModel.id,
+                  )
+                  setSettings(persisted)
+                  setPersistedSettings(persisted)
+                  setSelectedProviderId(selection.providerId)
+                  setSelectedModelId(selection.modelId)
                 }}
                 onSend={handleSend}
-                selectedModel={settings.model}
+                selectedModelId={defaultModel?.id ?? null}
+                selectedModelLabel={
+                  selectedComposerModelOption?.selectionLabel
+                  ?? defaultModel?.modelKey
+                  ?? ''
+                }
               />
             </>
           ) : (
             <SettingsPanel
+              activeModelId={activeModel?.id ?? null}
+              activeProviderId={activeProvider?.id ?? null}
               detectedModels={detectedModels}
+              defaultModelId={settings.preferences.defaultModelId}
+              defaultProviderId={settings.preferences.defaultProviderId}
               hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
               modelDetectionError={modelDetectionError}
+              providerModels={providerModels}
               settings={settings}
-              onChange={(field, value) => {
-                if (field === 'apiKey' || field === 'baseUrl') {
-                  setDetectedModels([])
-                  setModelDetectionError(null)
+              onAddModel={handleAddModel}
+              onAddProvider={handleAddProvider}
+              onDetectModels={handleDetectModels}
+              onImportDetectedModel={handleImportDetectedModel}
+              onSave={handleSaveSettings}
+              onSelectModel={(modelId) => setSelectedModelId(modelId)}
+              onSelectProvider={(providerId) => {
+                const selection = resolveSelection(settings, providerId, null)
+                setSelectedProviderId(selection.providerId)
+                setSelectedModelId(selection.modelId)
+              }}
+              onSetDefaultModel={() => {
+                if (!activeProvider || !activeModel) {
+                  return
                 }
 
-                setSettings((current) => ({
-                  ...current,
-                  [field]: value,
+                applySettings({
+                  ...settings,
+                  preferences: {
+                    ...settings.preferences,
+                    defaultProviderId: activeProvider.id,
+                    defaultModelId: activeModel.id,
+                  },
+                })
+              }}
+              onSetDefaultProvider={() => {
+                if (!activeProvider) {
+                  return
+                }
+
+                applySettings({
+                  ...settings,
+                  preferences: {
+                    ...settings.preferences,
+                    defaultProviderId: activeProvider.id,
+                    defaultModelId: activeModel?.id ?? providerModels[0]?.id ?? null,
+                  },
+                })
+              }}
+              onToggleCapability={(capability: ModelCapability) => {
+                updateActiveModel((model) => ({
+                  ...model,
+                  capabilities: model.capabilities.includes(capability)
+                    ? model.capabilities.filter((item) => item !== capability)
+                    : [...model.capabilities, capability],
                 }))
               }}
-              onDetectModels={handleDetectModels}
-              onSave={handleSaveSettings}
-              onSelectDetectedModel={(model) => {
-                setSettings((current) => ({
-                  ...current,
-                  model,
+              onUpdateModelField={(field, value) => {
+                updateActiveModel((model) => ({
+                  ...model,
+                  [field]:
+                    field === 'contextWindow' || field === 'maxOutputTokens'
+                      ? value.trim()
+                        ? Number(value)
+                        : undefined
+                      : value,
                 }))
+              }}
+              onUpdateProviderField={(field, value) => {
+                updateActiveProvider((provider) => ({
+                  ...provider,
+                  [field]: value,
+                }))
+
+                if (activeProvider && (field === 'apiKey' || field === 'baseUrl')) {
+                  setDetectedModelsByProvider((current) => ({
+                    ...current,
+                    [activeProvider.id]: [],
+                  }))
+                  setModelDetectionErrors((current) => ({
+                    ...current,
+                    [activeProvider.id]: null,
+                  }))
+                }
+              }}
+              onUpdateSystemPrompt={(value) => {
+                applySettings({
+                  ...settings,
+                  preferences: {
+                    ...settings.preferences,
+                    systemPrompt: value,
+                  },
+                })
               }}
             />
           )}

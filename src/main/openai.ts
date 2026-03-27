@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage } from '../shared/contracts'
+import type { ChatMessage, ModelRequestSettings } from '../shared/contracts'
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant'
@@ -38,7 +38,7 @@ export function normalizeBaseUrl(baseUrl: string): string {
 }
 
 export function buildChatRequest(
-  settings: AppSettings,
+  settings: ModelRequestSettings,
   messages: ChatMessage[],
 ): {
   model: string
@@ -105,7 +105,7 @@ interface StreamDelta {
 }
 
 export async function* streamChatRequest(
-  settings: AppSettings,
+  settings: ModelRequestSettings,
   messages: ChatMessage[],
   fetchImpl: FetchLike = fetch,
 ): AsyncGenerator<string, void, unknown> {
@@ -169,7 +169,7 @@ export async function* streamChatRequest(
 }
 
 export async function sendChatRequest(
-  settings: AppSettings,
+  settings: ModelRequestSettings,
   messages: ChatMessage[],
   fetchImpl: FetchLike = fetch,
 ): Promise<string> {
@@ -205,7 +205,7 @@ export async function sendChatRequest(
 }
 
 export async function listAvailableModels(
-  settings: AppSettings,
+  settings: ModelRequestSettings,
   fetchImpl: FetchLike = fetch,
 ): Promise<string[]> {
   if (!settings.apiKey.trim()) {

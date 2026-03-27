@@ -1,25 +1,60 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { desktopApi } = vi.hoisted(() => ({
-  desktopApi: {
-    getSettings: vi.fn().mockResolvedValue({
-      apiKey: '',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
+const { desktopApi } = vi.hoisted(() => {
+  const createSettings = () => ({
+    providers: [
+      {
+        id: 'provider-openai',
+        name: 'OpenAI',
+        providerType: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        isEnabled: true,
+      },
+    ],
+    models: [
+      {
+        id: 'model-openai-gpt-4o-mini',
+        providerId: 'provider-openai',
+        modelKey: 'gpt-4o-mini',
+        displayName: 'GPT-4o mini',
+        description: '',
+        isEnabled: true,
+        sortOrder: 0,
+        supportsStreaming: true,
+        capabilities: ['text', 'image'],
+        rawMetadata: {},
+      },
+      {
+        id: 'model-openai-gpt-5.4',
+        providerId: 'provider-openai',
+        modelKey: 'gpt-5.4',
+        displayName: 'GPT-5.4',
+        description: '',
+        isEnabled: true,
+        sortOrder: 1,
+        supportsStreaming: true,
+        capabilities: ['text', 'reasoning'],
+        rawMetadata: {},
+      },
+    ],
+    preferences: {
+      defaultProviderId: 'provider-openai',
+      defaultModelId: 'model-openai-gpt-4o-mini',
       systemPrompt: '',
-    }),
+    },
+  })
+
+  return {
+    desktopApi: {
+    getSettings: vi.fn().mockImplementation(async () => createSettings()),
     listAvailableModels: vi.fn().mockResolvedValue(['gpt-4.1', 'gpt-4o-mini']),
-    updateSettings: vi.fn().mockImplementation(async (next) => ({
-      apiKey: next?.apiKey ?? '',
-      baseUrl: next?.baseUrl ?? 'https://api.openai.com/v1',
-      model: next?.model ?? 'gpt-4o-mini',
-      systemPrompt: next?.systemPrompt ?? '',
-    })),
+    updateSettings: vi.fn().mockImplementation(async (next) => next),
     listConversations: vi.fn().mockResolvedValue([]),
     createConversation: vi.fn().mockResolvedValue({
       id: 'conversation-seed',
@@ -37,8 +72,9 @@ const { desktopApi } = vi.hoisted(() => ({
         onEnd()
       },
     ),
-  },
-}))
+    },
+  }
+})
 
 vi.mock('./renderer/lib/electron', () => ({
   getDesktopApi: () => desktopApi,
@@ -54,6 +90,60 @@ function getSidebarSettingsButton(container: HTMLElement) {
 
 function getConversationList(container: HTMLElement) {
   return container.querySelector('.sidebar__list')
+}
+
+function createMultiProviderSettings() {
+  return {
+    providers: [
+      {
+        id: 'provider-openai',
+        name: 'OpenAI',
+        providerType: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        isEnabled: true,
+      },
+      {
+        id: 'provider-openrouter',
+        name: 'OpenRouter',
+        providerType: 'openrouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-openrouter',
+        isEnabled: true,
+      },
+    ],
+    models: [
+      {
+        id: 'model-openai-gpt-4o-mini',
+        providerId: 'provider-openai',
+        modelKey: 'gpt-4o-mini',
+        displayName: 'GPT-4o mini',
+        description: '',
+        isEnabled: true,
+        sortOrder: 0,
+        supportsStreaming: true,
+        capabilities: ['text', 'image'],
+        rawMetadata: {},
+      },
+      {
+        id: 'model-openrouter-claude-3-7-sonnet',
+        providerId: 'provider-openrouter',
+        modelKey: 'anthropic/claude-3.7-sonnet',
+        displayName: 'Claude 3.7 Sonnet',
+        description: '',
+        isEnabled: true,
+        sortOrder: 0,
+        supportsStreaming: true,
+        capabilities: ['text', 'reasoning'],
+        rawMetadata: {},
+      },
+    ],
+    preferences: {
+      defaultProviderId: 'provider-openai',
+      defaultModelId: 'model-openai-gpt-4o-mini',
+      systemPrompt: '',
+    },
+  }
 }
 
 describe('App', () => {
@@ -228,11 +318,34 @@ describe('App', () => {
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: '选择模型' }))
-    await user.click(screen.getByRole('menuitemradio', { name: 'GPT-5.4' }))
+    await user.click(screen.getByRole('menuitemradio', { name: /GPT-5\.4/i }))
 
-    expect(desktopApi.updateSettings).toHaveBeenCalledWith({
-      model: 'gpt-5.4',
-    })
+    expect(desktopApi.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          defaultProviderId: 'provider-openai',
+          defaultModelId: 'model-openai-gpt-5.4',
+        }),
+      }),
+    )
+  })
+
+  it('lets the chat model menu switch to a model from another provider', async () => {
+    const user = userEvent.setup()
+    desktopApi.getSettings.mockResolvedValueOnce(createMultiProviderSettings())
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '选择模型' }))
+    await user.click(screen.getByRole('menuitemradio', { name: /Claude 3\.7 Sonnet/i }))
+
+    expect(desktopApi.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          defaultProviderId: 'provider-openrouter',
+          defaultModelId: 'model-openrouter-claude-3-7-sonnet',
+        }),
+      }),
+    )
   })
 
   it('includes selected attachments when sending a message', async () => {
@@ -270,6 +383,64 @@ describe('App', () => {
     )
   })
 
+  it('adds a dropped file to the composer attachment list before sending', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    const composerSurface = container.querySelector('.composer__surface')
+    expect(composerSurface).not.toBeNull()
+
+    const file = new File(['hello'], 'requirements.txt', { type: 'text/plain' })
+
+    fireEvent.drop(composerSurface as HTMLElement, {
+      dataTransfer: {
+        files: [file],
+      },
+    })
+
+    expect(await screen.findByText('requirements.txt')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '发送消息' }))
+
+    expect(desktopApi.streamChat).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          attachments: [
+            expect.objectContaining({
+              name: 'requirements.txt',
+              kind: 'file',
+            }),
+          ],
+        }),
+      ],
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    )
+  })
+
+  it('stores dropped images through the desktop attachment bridge', async () => {
+    const { container } = render(<App />)
+
+    const composerSurface = container.querySelector('.composer__surface')
+    expect(composerSurface).not.toBeNull()
+
+    const image = new File(['png-bytes'], 'mockup.png', { type: 'image/png' })
+
+    fireEvent.drop(composerSurface as HTMLElement, {
+      dataTransfer: {
+        files: [image],
+      },
+    })
+
+    expect(await screen.findByText('mockup.png')).toBeInTheDocument()
+    expect(desktopApi.storeAttachment).toHaveBeenCalledWith(
+      expect.stringMatching(/^attachment-/),
+      'mockup.png',
+      expect.stringMatching(/^data:image\/png;base64,/),
+    )
+  })
+
   it('keeps the conversation message track stretched so user messages do not sit in the middle', async () => {
     const user = userEvent.setup()
     desktopApi.streamChat.mockImplementationOnce(
@@ -289,6 +460,43 @@ describe('App', () => {
 
     expect(messageTrack).not.toBeNull()
     expect(window.getComputedStyle(messageTrack as HTMLElement).alignItems).toBe('stretch')
+  })
+
+  it('keeps the conversation scrollbar inset at 2px from the right edge', async () => {
+    render(<App />)
+
+    await screen.findByPlaceholderText('要求后续变更')
+
+    expect(appCss).toMatch(
+      /\.workspace\s*\{[^}]*--conversation-scrollbar-inline-end-gap:\s*2px/s,
+    )
+    expect(appCss).toMatch(
+      /\.conversation__messages\s*\{[\s\S]*?margin-right:\s*calc\([\s\S]*?var\(--conversation-scrollbar-inline-end-gap\)[\s\S]*?var\(--workspace-inline-padding\)[\s\S]*?\)/s,
+    )
+    expect(appCss).toMatch(
+      /\.conversation__messages,\s*\.conversation__welcome\s*\{[^}]*padding-right:\s*var\(--conversation-text-inline-end-inset\)/s,
+    )
+  })
+
+  it('keeps the sidebar scrollbars inset at 2px from the sidebar right edge', async () => {
+    render(<App />)
+
+    await screen.findByPlaceholderText('要求后续变更')
+
+    expect(appCss).toMatch(/\.sidebar\s*\{[^}]*--sidebar-inline-padding:\s*20px/s)
+    expect(appCss).toMatch(/\.sidebar\s*\{[^}]*--sidebar-scrollbar-inline-end-gap:\s*2px/s)
+    expect(appCss).toMatch(
+      /\.sidebar__list\s*\{[\s\S]*?padding-right:\s*calc\([\s\S]*?var\(--sidebar-inline-padding\)[\s\S]*?var\(--sidebar-scrollbar-inline-end-gap\)[\s\S]*?\)/s,
+    )
+    expect(appCss).toMatch(
+      /\.sidebar__list\s*\{[\s\S]*?margin-right:\s*calc\([\s\S]*?var\(--sidebar-scrollbar-inline-end-gap\)[\s\S]*?var\(--sidebar-inline-padding\)[\s\S]*?\)/s,
+    )
+    expect(appCss).toMatch(
+      /\.sidebar__settings-nav\s*\{[\s\S]*?padding-right:\s*calc\([\s\S]*?var\(--sidebar-inline-padding\)[\s\S]*?var\(--sidebar-scrollbar-inline-end-gap\)[\s\S]*?\)/s,
+    )
+    expect(appCss).toMatch(
+      /\.sidebar__settings-nav\s*\{[\s\S]*?margin-right:\s*calc\([\s\S]*?var\(--sidebar-scrollbar-inline-end-gap\)[\s\S]*?var\(--sidebar-inline-padding\)[\s\S]*?\)/s,
+    )
   })
 
   it('keeps assistant replies narrower than the full message track for better reading rhythm', async () => {
@@ -372,71 +580,139 @@ describe('App', () => {
 
     expect(screen.getAllByRole('heading', { name: '设置' }).length).toBeGreaterThanOrEqual(1)
     expect(getConversationList(container)).toBeNull()
-    expect(screen.getByRole('heading', { name: '连接设置' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '模型与行为' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '连接控制台' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '供应商列表' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '模型目录与行为策略' })).toBeInTheDocument()
   })
 
-  it('fills in settings fields and saves them', async () => {
+  it('shows a settings status rail with provider, connection, and save state', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
 
+    const statusRail = screen.getByLabelText('设置状态栏')
+
+    expect(screen.getByText('当前供应商')).toBeInTheDocument()
+    expect(screen.getByText('连接状态')).toBeInTheDocument()
+    expect(screen.getByText('保存状态')).toBeInTheDocument()
+    expect(within(statusRail).getByText('OpenAI')).toBeInTheDocument()
+    expect(within(statusRail).getByText('未配置')).toBeInTheDocument()
+    expect(within(statusRail).getByText('已同步')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('API Key'), 'draft-key')
+
+    expect(within(statusRail).getByText('有更改待保存')).toBeInTheDocument()
+  })
+
+  it('keeps the settings workspace in two columns at the default desktop app width', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await user.click(getSidebarSettingsButton(container))
+
+    const settingsGrid = container.querySelector('.settings-page__grid')
+    expect(settingsGrid).not.toBeNull()
+
+    expect(appCss).toMatch(/\.settings-page__grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.05fr\)\s+minmax\(0,\s*1fr\)/s)
+    expect(appCss).not.toMatch(/@media\s*\(max-width:\s*1080px\)\s*\{[^}]*\.settings-page__grid\s*\{[^}]*grid-template-columns:\s*1fr/s)
+  })
+
+  it('adds a provider, marks it as default, and saves the provider catalog', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: '打开设置' }))
+
+    await user.click(screen.getByRole('button', { name: '新增供应商' }))
+    await user.clear(screen.getByLabelText('供应商名称'))
+    await user.type(screen.getByLabelText('供应商名称'), 'OpenRouter')
+    await user.clear(screen.getByLabelText('供应商类型'))
+    await user.type(screen.getByLabelText('供应商类型'), 'openrouter')
     const apiKeyInput = screen.getByLabelText('API Key')
     const baseUrlInput = screen.getByLabelText('Base URL')
-    const modelInput = screen.getByLabelText('Model')
 
     await user.clear(apiKeyInput)
     await user.type(apiKeyInput, 'updated-key')
     await user.clear(baseUrlInput)
-    await user.type(baseUrlInput, 'https://example.com/v1')
-    await user.clear(modelInput)
-    await user.type(modelInput, 'gpt-4.1')
+    await user.type(baseUrlInput, 'https://openrouter.ai/api/v1')
+
+    await user.click(screen.getByRole('button', { name: '新增模型' }))
+    await user.clear(screen.getByLabelText('模型 ID'))
+    await user.type(screen.getByLabelText('模型 ID'), 'openai/gpt-4o-mini')
+    await user.clear(screen.getByLabelText('显示名称'))
+    await user.type(screen.getByLabelText('显示名称'), 'GPT-4o mini')
+
+    await user.click(screen.getByRole('button', { name: '设为默认供应商' }))
+    await user.click(screen.getByRole('button', { name: '设为默认模型' }))
 
     await user.click(screen.getByRole('button', { name: '保存设置' }))
 
-    expect(desktopApi.updateSettings).toHaveBeenCalledWith({
-      apiKey: 'updated-key',
-      baseUrl: 'https://example.com/v1',
-      model: 'gpt-4.1',
-      systemPrompt: '',
-    })
+    const savedSettings = desktopApi.updateSettings.mock.calls.at(-1)?.[0]
+    expect(savedSettings.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'OpenRouter',
+          providerType: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: 'updated-key',
+        }),
+      ]),
+    )
+
+    const openRouter = savedSettings.providers.find((provider: { name: string }) => provider.name === 'OpenRouter')
+    expect(openRouter).toBeDefined()
+    expect(savedSettings.preferences.defaultProviderId).toBe(openRouter.id)
+
+    const openRouterModel = savedSettings.models.find(
+      (model: { providerId: string; modelKey: string }) =>
+        model.providerId === openRouter.id && model.modelKey === 'openai/gpt-4o-mini',
+    )
+    expect(openRouterModel).toBeDefined()
+    expect(savedSettings.preferences.defaultModelId).toBe(openRouterModel.id)
   })
 
-  it('detects provider models, lets the user select one, and saves it', async () => {
+  it('detects provider models, imports one into the active provider, and saves it', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
 
-    const apiKeyInput = screen.getByLabelText('API Key')
-    const baseUrlInput = screen.getByLabelText('Base URL')
-
-    await user.clear(apiKeyInput)
-    await user.type(apiKeyInput, 'provider-key')
-    await user.clear(baseUrlInput)
-    await user.type(baseUrlInput, 'https://provider.example/v1')
-
     await user.click(screen.getByRole('button', { name: '检测模型' }))
 
     expect(desktopApi.listAvailableModels).toHaveBeenCalledWith({
-      apiKey: 'provider-key',
-      baseUrl: 'https://provider.example/v1',
+      apiKey: '',
+      baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4o-mini',
       systemPrompt: '',
     })
 
-    await user.click(await screen.findByRole('option', { name: 'gpt-4.1' }))
-    expect(screen.getByLabelText('Model')).toHaveValue('gpt-4.1')
+    await user.click(await screen.findByRole('button', { name: '导入模型 gpt-4.1' }))
+    expect(screen.getByLabelText('模型 ID')).toHaveValue('gpt-4.1')
 
     await user.click(screen.getByRole('button', { name: '保存设置' }))
 
-    expect(desktopApi.updateSettings).toHaveBeenCalledWith({
-      apiKey: 'provider-key',
-      baseUrl: 'https://provider.example/v1',
-      model: 'gpt-4.1',
-      systemPrompt: '',
-    })
+    const savedSettings = desktopApi.updateSettings.mock.calls.at(-1)?.[0]
+    expect(savedSettings.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'provider-openai',
+          modelKey: 'gpt-4.1',
+        }),
+      ]),
+    )
+  })
+
+  it('renders provider model capabilities in the settings catalog', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await user.click(getSidebarSettingsButton(container))
+
+    expect(screen.getAllByText('image').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('reasoning').length).toBeGreaterThan(0)
+
+    expect(container.querySelector('.settings-model-capability')).not.toBeNull()
   })
 
   it('shows system prompt in settings and returns to chat', async () => {

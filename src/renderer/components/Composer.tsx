@@ -6,12 +6,19 @@ import type {
 } from '../../shared/contracts'
 import { getDesktopApi } from '../lib/electron'
 
+export interface ComposerModelOption {
+  id: string
+  label: string
+  selectionLabel: string
+}
+
 interface ComposerProps {
   disabled: boolean
-  modelOptions: string[]
-  onModelChange: (model: string) => Promise<void>
+  modelOptions: ComposerModelOption[]
+  onModelChange: (modelId: string) => Promise<void>
   onSend: (submission: ChatComposerSubmission) => Promise<void>
-  selectedModel: string
+  selectedModelId: string | null
+  selectedModelLabel: string
 }
 
 let nextAttachmentId = 0
@@ -21,12 +28,20 @@ function createAttachmentId() {
   return `attachment-${nextAttachmentId}`
 }
 
-function normalizeFiles(files: FileList): ChatAttachment[] {
+function normalizeFiles(files: Iterable<File>): ChatAttachment[] {
   return Array.from(files).map((file) => ({
     id: createAttachmentId(),
     name: file.name,
     kind: file.type.startsWith('image/') ? 'image' : 'file',
   }))
+}
+
+function hasDraggedFiles(dataTransfer: DataTransfer | null | undefined) {
+  if (!dataTransfer) {
+    return false
+  }
+
+  return dataTransfer.files.length > 0 || Array.from(dataTransfer.types).includes('Files')
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -43,17 +58,20 @@ export function Composer({
   modelOptions,
   onModelChange,
   onSend,
-  selectedModel,
+  selectedModelId,
+  selectedModelLabel,
 }: ComposerProps) {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false)
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
   const [isModelUpdating, setIsModelUpdating] = useState(false)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [soulMode, setSoulMode] = useState(false)
   const toolsMenuRef = useRef<HTMLDivElement | null>(null)
   const modelMenuRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const dragDepthRef = useRef(0)
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -91,6 +109,27 @@ export function Composer({
     await onSend(submission)
   }
 
+  async function addAttachmentsFromFiles(filesInput: Iterable<File>) {
+    const files = Array.from(filesInput)
+    if (files.length === 0) {
+      return
+    }
+
+    const newAttachments = normalizeFiles(files)
+    const desktop = getDesktopApi()
+
+    for (let i = 0; i < newAttachments.length; i++) {
+      const attachment = newAttachments[i]
+      const file = files[i]
+      if (attachment.kind === 'image') {
+        const dataUrl = await readFileAsDataUrl(file)
+        await desktop.storeAttachment(attachment.id, attachment.name, dataUrl)
+      }
+    }
+
+    setAttachments((current) => [...current, ...newAttachments])
+  }
+
   const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0)
 
   return (
@@ -103,7 +142,47 @@ export function Composer({
         minWidth: 0,
       }}
     >
-      <div className="composer__surface">
+      <div
+        className={`composer__surface${isDraggingFiles ? ' composer__surface--dragging' : ''}`}
+        onDragEnter={(event) => {
+          if (!hasDraggedFiles(event.dataTransfer)) {
+            return
+          }
+
+          event.preventDefault()
+          dragDepthRef.current += 1
+          setIsDraggingFiles(true)
+        }}
+        onDragLeave={(event) => {
+          if (!hasDraggedFiles(event.dataTransfer)) {
+            return
+          }
+
+          event.preventDefault()
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+          if (dragDepthRef.current === 0) {
+            setIsDraggingFiles(false)
+          }
+        }}
+        onDragOver={(event) => {
+          if (!hasDraggedFiles(event.dataTransfer)) {
+            return
+          }
+
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }}
+        onDrop={async (event) => {
+          if (!hasDraggedFiles(event.dataTransfer)) {
+            return
+          }
+
+          event.preventDefault()
+          dragDepthRef.current = 0
+          setIsDraggingFiles(false)
+          await addAttachmentsFromFiles(event.dataTransfer.files)
+        }}
+      >
         {attachments.length > 0 ? (
           <div className="composer__attachments">
             {attachments.map((attachment) => (
@@ -194,19 +273,7 @@ export function Composer({
                     return
                   }
 
-                  const newAttachments = normalizeFiles(files)
-                  const desktop = getDesktopApi()
-
-                  for (let i = 0; i < newAttachments.length; i++) {
-                    const attachment = newAttachments[i]
-                    const file = files[i]
-                    if (attachment.kind === 'image') {
-                      const dataUrl = await readFileAsDataUrl(file)
-                      await desktop.storeAttachment(attachment.id, attachment.name, dataUrl)
-                    }
-                  }
-
-                  setAttachments((current) => [...current, ...newAttachments])
+                  await addAttachmentsFromFiles(files)
                   event.target.value = ''
                 }}
                 ref={fileInputRef}
@@ -227,7 +294,7 @@ export function Composer({
                 type="button"
                 style={{ minWidth: 0, maxWidth: '100%' }}
               >
-                <span>{selectedModel}</span>
+                <span>{selectedModelLabel}</span>
                 <span className="composer__caret">⌄</span>
               </button>
 
@@ -235,14 +302,14 @@ export function Composer({
                 <div className="composer__menu composer__menu--model" role="menu">
                   {modelOptions.map((option) => (
                     <button
-                      aria-checked={option === selectedModel}
-                      className={`composer__menu-item${option === selectedModel ? ' composer__menu-item--active' : ''}`}
+                      aria-checked={option.id === selectedModelId}
+                      className={`composer__menu-item${option.id === selectedModelId ? ' composer__menu-item--active' : ''}`}
                       disabled={isModelUpdating}
-                      key={option}
+                      key={option.id}
                       onClick={async () => {
                         setIsModelUpdating(true)
                         try {
-                          await onModelChange(option)
+                          await onModelChange(option.id)
                           setIsModelMenuOpen(false)
                         } finally {
                           setIsModelUpdating(false)
@@ -251,7 +318,7 @@ export function Composer({
                       role="menuitemradio"
                       type="button"
                     >
-                      {option.toUpperCase()}
+                      {option.label}
                     </button>
                   ))}
                 </div>

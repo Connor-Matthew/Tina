@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import type { AppSettings, ChatMessage } from '../shared/contracts'
+import type { ChatMessage } from '../shared/contracts'
 import { AppDatabase } from './database'
 
 const tempDirs: string[] = []
@@ -29,20 +30,128 @@ afterEach(() => {
 })
 
 describe('AppDatabase', () => {
-  it('starts empty and persists settings rows', () => {
+  it('starts empty and persists provider catalog settings', () => {
     const database = createTestDatabase()
-    const settings: AppSettings = {
-      apiKey: 'sk-user',
-      baseUrl: 'https://example.com/v1',
-      model: 'gpt-4.1',
-      systemPrompt: 'Be concise.',
-    }
+    const settings = {
+      providers: [
+        {
+          id: 'provider-openai',
+          name: 'OpenAI',
+          providerType: 'openai',
+          baseUrl: 'https://example.com/v1',
+          apiKey: 'sk-user',
+          isEnabled: true,
+        },
+        {
+          id: 'provider-openrouter',
+          name: 'OpenRouter',
+          providerType: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: 'sk-router',
+          isEnabled: true,
+        },
+      ],
+      models: [
+        {
+          id: 'model-openai-gpt-4.1',
+          providerId: 'provider-openai',
+          modelKey: 'gpt-4.1',
+          displayName: 'GPT-4.1',
+          description: 'General model',
+          contextWindow: 128000,
+          maxOutputTokens: 16384,
+          isEnabled: true,
+          sortOrder: 0,
+          supportsStreaming: true,
+          capabilities: ['text', 'reasoning'],
+          rawMetadata: { tier: 'default' },
+        },
+        {
+          id: 'model-router-gpt-4o-mini',
+          providerId: 'provider-openrouter',
+          modelKey: 'openai/gpt-4o-mini',
+          displayName: 'GPT-4o mini',
+          description: 'Routed model',
+          isEnabled: true,
+          sortOrder: 1,
+          supportsStreaming: true,
+          capabilities: ['text', 'image'],
+          rawMetadata: {},
+        },
+      ],
+      preferences: {
+        defaultProviderId: 'provider-openai',
+        defaultModelId: 'model-openai-gpt-4.1',
+        systemPrompt: 'Be concise.',
+      },
+    } as const
 
     expect(database.getSettings()).toBeUndefined()
 
-    database.setSettings(settings)
+    database.setSettings(settings as any)
 
     expect(database.getSettings()).toEqual(settings)
+    database.close()
+  })
+
+  it('migrates a legacy flat settings row into provider catalog tables', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'tina-db-legacy-'))
+    tempDirs.push(directory)
+    const databasePath = join(directory, 'app.sqlite')
+    const legacy = new DatabaseSync(databasePath)
+
+    legacy.exec(`
+      CREATE TABLE settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        api_key TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        model TEXT NOT NULL,
+        system_prompt TEXT NOT NULL
+      );
+    `)
+    legacy
+      .prepare(`
+        INSERT INTO settings (id, api_key, base_url, model, system_prompt)
+        VALUES (1, ?, ?, ?, ?)
+      `)
+      .run('sk-legacy', 'https://openrouter.ai/api/v1/', 'openai/gpt-4o-mini', 'legacy prompt')
+    legacy.close()
+
+    const database = new AppDatabase({ databasePath })
+    const settings = database.getSettings()
+
+    expect(settings).toEqual({
+      providers: [
+        {
+          id: expect.any(String),
+          name: 'OpenRouter',
+          providerType: 'openrouter',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: 'sk-legacy',
+          isEnabled: true,
+        },
+      ],
+      models: [
+        {
+          id: expect.any(String),
+          providerId: expect.any(String),
+          modelKey: 'openai/gpt-4o-mini',
+          displayName: 'openai/gpt-4o-mini',
+          description: '',
+          isEnabled: true,
+          sortOrder: 0,
+          supportsStreaming: true,
+          capabilities: ['text'],
+          rawMetadata: { source: 'legacy-settings-migration' },
+        },
+      ],
+      preferences: {
+        defaultProviderId: expect.any(String),
+        defaultModelId: expect.any(String),
+        systemPrompt: 'legacy prompt',
+      },
+    })
+
     database.close()
   })
 

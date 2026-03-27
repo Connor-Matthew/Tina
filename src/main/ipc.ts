@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { AppDatabase } from './database'
 import { listAvailableModels, sendChatRequest, streamChatRequest } from './openai'
 import { SettingsStore } from './settings'
-import type { AppSettings, ChatMessage } from '../shared/contracts'
+import type { AppSettings, ChatMessage, ModelRequestSettings } from '../shared/contracts'
 
 let database: AppDatabase | undefined
 let settingsStore: SettingsStore | undefined
@@ -57,17 +57,39 @@ function getSettingsStore(): SettingsStore {
   return settingsStore
 }
 
+function resolveCurrentRequestSettings(settings: AppSettings): ModelRequestSettings {
+  const provider = settings.providers.find(
+    (item) => item.id === settings.preferences.defaultProviderId,
+  )
+  const model = settings.models.find(
+    (item) =>
+      item.id === settings.preferences.defaultModelId
+      && item.providerId === settings.preferences.defaultProviderId,
+  )
+
+  if (!provider || !model) {
+    throw new Error('Default provider and model must be configured before sending a message.')
+  }
+
+  return {
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    model: model.modelKey,
+    systemPrompt: settings.preferences.systemPrompt,
+  }
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle('settings:get', () => getSettingsStore().get())
 
   ipcMain.handle(
     'settings:list-models',
-    (_event, settings: AppSettings) => listAvailableModels(settings),
+    (_event, settings: ModelRequestSettings) => listAvailableModels(settings),
   )
 
   ipcMain.handle(
     'settings:update',
-    (_event, next: Partial<AppSettings>) => getSettingsStore().set(next),
+    (_event, next: AppSettings) => getSettingsStore().set(next),
   )
 
   ipcMain.handle('conversations:list', () => getDatabase().listConversations())
@@ -104,14 +126,20 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('chat:send', async (_event, messages: ChatMessage[]) => {
-    return sendChatRequest(getSettingsStore().get(), resolveAttachmentDataUrls(messages))
+    return sendChatRequest(
+      resolveCurrentRequestSettings(getSettingsStore().get()),
+      resolveAttachmentDataUrls(messages),
+    )
   })
 
   ipcMain.handle('chat:stream', async (event, messages: ChatMessage[]) => {
     const webContents = event.sender
     const resolved = resolveAttachmentDataUrls(messages)
     try {
-      for await (const token of streamChatRequest(getSettingsStore().get(), resolved)) {
+      for await (const token of streamChatRequest(
+        resolveCurrentRequestSettings(getSettingsStore().get()),
+        resolved,
+      )) {
         webContents.send('chat:stream-chunk', token)
       }
       webContents.send('chat:stream-end')

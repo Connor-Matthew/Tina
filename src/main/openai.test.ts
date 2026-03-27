@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AppSettings, ChatMessage } from '../shared/contracts'
+import type { ChatMessage, ModelRequestSettings } from '../shared/contracts'
 import {
   buildChatRequest,
   listAvailableModels,
@@ -9,7 +9,7 @@ import {
   streamChatRequest,
 } from './openai'
 
-const settings: AppSettings = {
+const settings: ModelRequestSettings = {
   apiKey: 'sk-test',
   baseUrl: 'https://api.openai.com/v1/',
   model: 'gpt-4o-mini',

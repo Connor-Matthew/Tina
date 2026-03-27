@@ -57,3 +57,38 @@
 - Verified all SQLite persistence code is fully implemented across all layers: database, settings, IPC, preload, contracts, renderer store, and app startup.
 - All 49 tests across 8 test files pass (`npx vitest run`, 2026-03-26).
 - Plan checkboxes updated in `docs/superpowers/plans/2026-03-26-sqlite-persistence.md`.
+
+# Settings Console Redesign
+
+- [x] Review the existing settings page structure, tests, and visual constraints.
+- [x] Add failing UI tests for the control-console header and revised section headings.
+- [x] Rebuild the settings panel layout into a status rail plus two-column control surface.
+- [x] Restyle provider selection, detection results, and strategy form fields to feel like a desktop tool.
+- [x] Run targeted and full verification, then record the results.
+
+## Review
+
+- Reworked `src/renderer/components/SettingsPanel.tsx` into a control-console layout with a top status rail, a connection column, and a model/behavior column while preserving the existing settings logic.
+- Redesigned the settings styles in `src/App.css` so the page now reads like a professional inspector panel: stronger header hierarchy, denser status cards, provider selection tiles, and a dedicated detection surface.
+- Added regression coverage in `src/App.test.tsx` for the new control-console heading and the status rail that surfaces provider, connection state, and save state.
+- Verified with `npx vitest run src/App.test.tsx` and `npm run build`.
+- Build still reports an existing chunk-size warning from Vite plus the existing `inlineDynamicImports` deprecation warning in the Electron build.
+
+# Provider Catalog Persistence
+
+- [x] Replace flat app settings with a provider catalog contract.
+- [x] Add failing database/settings/openai tests for provider, model, and default-preference persistence.
+- [x] Implement SQLite provider tables plus legacy SQLite and `electron-store` migration.
+- [x] Resolve chat request settings from the saved default provider and model in the main process.
+- [x] Rebuild the settings UI around multiple providers, multiple models, default selection, and detected-model import.
+- [x] Run focused, full, and build verification.
+
+## Review
+
+- Replaced the old flat `apiKey/baseUrl/model/systemPrompt` settings shape with a provider catalog that stores `providers`, `models`, and `preferences` in `src/shared/contracts.ts`.
+- Added multi-table SQLite persistence in `src/main/database.ts` with `providers`, `provider_models`, `provider_model_capabilities`, and `app_preferences`, while preserving conversation storage and migrating legacy flat SQLite settings into the new catalog.
+- Updated `src/main/settings.ts` so first-run migration from `electron-store` now seeds a provider catalog, while unchanged default legacy settings still map to the stable default OpenAI provider and model IDs.
+- Changed the main-process request flow in `src/main/ipc.ts` and `src/main/openai.ts` so chat send/stream calls resolve their request settings from the saved default provider and model instead of reading a flat settings row.
+- Reworked `src/App.tsx` and `src/renderer/components/SettingsPanel.tsx` so the renderer manages multiple providers, provider-scoped model lists, default provider/model selection, capability badges, and importing detected models into the active provider.
+- Verified with `npx vitest run src/main/database.test.ts src/main/settings.test.ts src/main/openai.test.ts src/App.test.tsx`, `npx vitest run`, and `npm run build`.
+- Build still reports the existing Vite large-chunk warning plus the existing Electron `inlineDynamicImports` deprecation warning.

@@ -1,6 +1,12 @@
 import { DatabaseSync } from 'node:sqlite'
 
-import type { AppSettings, ChatAttachment, ChatMessage, Conversation } from '../shared/contracts'
+import type {
+  AppSettings,
+  ChatAttachment,
+  ChatMessage,
+  Conversation,
+  ModelCapability,
+} from '../shared/contracts'
 
 interface ConversationRecord {
   created_at: string
@@ -18,10 +24,44 @@ interface MessageRecord {
   role: ChatMessage['role']
 }
 
-interface SettingsRecord {
+interface LegacySettingsRecord {
   api_key: string
   base_url: string
   model: string
+  system_prompt: string
+}
+
+interface ProviderRecord {
+  api_key: string
+  base_url: string
+  id: string
+  is_enabled: number
+  name: string
+  provider_type: string
+}
+
+interface ProviderModelRecord {
+  context_window: number | null
+  description: string
+  display_name: string
+  id: string
+  is_enabled: number
+  max_output_tokens: number | null
+  model_key: string
+  provider_id: string
+  raw_metadata_json: string
+  sort_order: number
+  supports_streaming: number
+}
+
+interface CapabilityRecord {
+  capability: ModelCapability
+  provider_model_id: string
+}
+
+interface AppPreferencesRecord {
+  default_model_id: string | null
+  default_provider_id: string | null
   system_prompt: string
 }
 
@@ -34,6 +74,31 @@ let timestampCounter = 0
 function nowIsoString(): string {
   timestampCounter += 1
   return `${new Date().toISOString()}-${timestampCounter.toString().padStart(6, '0')}`
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '')
+}
+
+function inferLegacyProvider(baseUrl: string): {
+  name: string
+  providerType: string
+} {
+  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
+
+  if (normalized.includes('openrouter.ai')) {
+    return { name: 'OpenRouter', providerType: 'openrouter' }
+  }
+
+  if (normalized.includes('anthropic.com')) {
+    return { name: 'Anthropic', providerType: 'anthropic' }
+  }
+
+  if (!normalized || normalized.includes('openai.com')) {
+    return { name: 'OpenAI', providerType: 'openai' }
+  }
+
+  return { name: '已迁移供应商', providerType: 'custom' }
 }
 
 function parseAttachments(value: string): ChatAttachment[] | undefined {
@@ -60,12 +125,49 @@ export class AppDatabase {
     this.database = new DatabaseSync(options.databasePath)
     this.database.exec('PRAGMA foreign_keys = ON')
     this.database.exec(`
-      CREATE TABLE IF NOT EXISTS settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        api_key TEXT NOT NULL,
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider_type TEXT NOT NULL,
         base_url TEXT NOT NULL,
-        model TEXT NOT NULL,
-        system_prompt TEXT NOT NULL
+        api_key TEXT NOT NULL,
+        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        model_key TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        context_window INTEGER,
+        max_output_tokens INTEGER,
+        is_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_enabled IN (0, 1)),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        supports_streaming INTEGER NOT NULL DEFAULT 1 CHECK (supports_streaming IN (0, 1)),
+        raw_metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+        UNIQUE (provider_id, model_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_model_capabilities (
+        provider_model_id TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        PRIMARY KEY (provider_model_id, capability),
+        FOREIGN KEY (provider_model_id) REFERENCES provider_models(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS app_preferences (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        default_provider_id TEXT,
+        default_model_id TEXT,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
+        FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
       );
 
       CREATE TABLE IF NOT EXISTS conversations (
@@ -85,47 +187,321 @@ export class AppDatabase {
         FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
       );
 
+      CREATE INDEX IF NOT EXISTS provider_models_provider_enabled_sort_idx
+      ON provider_models(provider_id, is_enabled, sort_order ASC, display_name ASC);
+
+      CREATE INDEX IF NOT EXISTS provider_model_capabilities_capability_idx
+      ON provider_model_capabilities(capability, provider_model_id);
+
       CREATE INDEX IF NOT EXISTS messages_conversation_idx
       ON messages(conversation_id, created_at, id);
 
       CREATE INDEX IF NOT EXISTS conversations_updated_idx
       ON conversations(updated_at DESC, created_at DESC, id);
     `)
+
+    this.migrateLegacySettingsTable()
+    this.database.exec('PRAGMA user_version = 2')
   }
 
   close(): void {
     this.database.close()
   }
 
-  getSettings(): AppSettings | undefined {
+  private tableExists(name: string): boolean {
+    const row = this.database
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(name) as { name: string } | undefined
+
+    return Boolean(row)
+  }
+
+  private hasProviderCatalog(): boolean {
+    const row = this.database
+      .prepare('SELECT COUNT(*) as count FROM providers')
+      .get() as { count: number }
+
+    return row.count > 0
+  }
+
+  private migrateLegacySettingsTable(): void {
+    if (this.hasProviderCatalog() || !this.tableExists('settings')) {
+      return
+    }
+
     const row = this.database
       .prepare('SELECT api_key, base_url, model, system_prompt FROM settings WHERE id = 1')
-      .get() as SettingsRecord | undefined
+      .get() as LegacySettingsRecord | undefined
 
     if (!row) {
+      return
+    }
+
+    const providerId = 'legacy-provider'
+    const modelId = 'legacy-model'
+    const timestamp = nowIsoString()
+    const identity = inferLegacyProvider(row.base_url)
+
+    this.withTransaction(() => {
+      this.database
+        .prepare(`
+          INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        `)
+        .run(
+          providerId,
+          identity.name,
+          identity.providerType,
+          normalizeBaseUrl(row.base_url),
+          row.api_key,
+          timestamp,
+          timestamp,
+        )
+
+      this.database
+        .prepare(`
+          INSERT INTO provider_models (
+            id,
+            provider_id,
+            model_key,
+            display_name,
+            description,
+            context_window,
+            max_output_tokens,
+            is_enabled,
+            sort_order,
+            supports_streaming,
+            raw_metadata_json,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, '', NULL, NULL, 1, 0, 1, ?, ?, ?)
+        `)
+        .run(
+          modelId,
+          providerId,
+          row.model,
+          row.model,
+          JSON.stringify({ source: 'legacy-settings-migration' }),
+          timestamp,
+          timestamp,
+        )
+
+      this.database
+        .prepare(`
+          INSERT INTO provider_model_capabilities (provider_model_id, capability)
+          VALUES (?, 'text')
+        `)
+        .run(modelId)
+
+      this.database
+        .prepare(`
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
+          VALUES (1, ?, ?, ?)
+        `)
+        .run(providerId, modelId, row.system_prompt)
+    })
+  }
+
+  private withTransaction(callback: () => void): void {
+    this.database.exec('BEGIN')
+
+    try {
+      callback()
+      this.database.exec('COMMIT')
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  getSettings(): AppSettings | undefined {
+    const providers = this.database
+      .prepare(`
+        SELECT id, name, provider_type, base_url, api_key, is_enabled
+        FROM providers
+        ORDER BY created_at ASC, id ASC
+      `)
+      .all() as unknown as ProviderRecord[]
+
+    if (providers.length === 0) {
       return undefined
     }
 
+    const models = this.database
+      .prepare(`
+        SELECT
+          id,
+          provider_id,
+          model_key,
+          display_name,
+          description,
+          context_window,
+          max_output_tokens,
+          is_enabled,
+          sort_order,
+          supports_streaming,
+          raw_metadata_json
+        FROM provider_models
+        ORDER BY provider_id ASC, sort_order ASC, display_name ASC, id ASC
+      `)
+      .all() as unknown as ProviderModelRecord[]
+
+    const capabilities = this.database
+      .prepare(`
+        SELECT provider_model_id, capability
+        FROM provider_model_capabilities
+        ORDER BY provider_model_id ASC, rowid ASC
+      `)
+      .all() as unknown as CapabilityRecord[]
+
+    const preferences = this.database
+      .prepare(`
+        SELECT default_provider_id, default_model_id, system_prompt
+        FROM app_preferences
+        WHERE id = 1
+      `)
+      .get() as AppPreferencesRecord | undefined
+
+    const capabilitiesByModelId = new Map<string, ModelCapability[]>()
+    for (const row of capabilities) {
+      const bucket = capabilitiesByModelId.get(row.provider_model_id) ?? []
+      bucket.push(row.capability)
+      capabilitiesByModelId.set(row.provider_model_id, bucket)
+    }
+
     return {
-      apiKey: row.api_key,
-      baseUrl: row.base_url,
-      model: row.model,
-      systemPrompt: row.system_prompt,
+      providers: providers.map((provider) => ({
+        id: provider.id,
+        name: provider.name,
+        providerType: provider.provider_type,
+        baseUrl: provider.base_url,
+        apiKey: provider.api_key,
+        isEnabled: provider.is_enabled === 1,
+      })),
+      models: models.map((model) => ({
+        id: model.id,
+        providerId: model.provider_id,
+        modelKey: model.model_key,
+        displayName: model.display_name,
+        description: model.description,
+        ...(model.context_window === null ? {} : { contextWindow: model.context_window }),
+        ...(model.max_output_tokens === null ? {} : { maxOutputTokens: model.max_output_tokens }),
+        isEnabled: model.is_enabled === 1,
+        sortOrder: model.sort_order,
+        supportsStreaming: model.supports_streaming === 1,
+        capabilities: capabilitiesByModelId.get(model.id) ?? [],
+        rawMetadata: JSON.parse(model.raw_metadata_json) as Record<string, unknown>,
+      })),
+      preferences: {
+        defaultProviderId: preferences?.default_provider_id ?? null,
+        defaultModelId: preferences?.default_model_id ?? null,
+        systemPrompt: preferences?.system_prompt ?? '',
+      },
     }
   }
 
   setSettings(settings: AppSettings): void {
-    this.database
-      .prepare(`
-        INSERT INTO settings (id, api_key, base_url, model, system_prompt)
-        VALUES (1, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          api_key = excluded.api_key,
-          base_url = excluded.base_url,
-          model = excluded.model,
-          system_prompt = excluded.system_prompt
+    const providerIds = new Set(settings.providers.map((provider) => provider.id))
+    const modelIds = new Set(settings.models.map((model) => model.id))
+    const defaultProviderId = settings.preferences.defaultProviderId
+    const defaultModelId = settings.preferences.defaultModelId
+
+    if (defaultProviderId && !providerIds.has(defaultProviderId)) {
+      throw new Error(`Default provider not found: ${defaultProviderId}`)
+    }
+
+    if (defaultModelId && !modelIds.has(defaultModelId)) {
+      throw new Error(`Default model not found: ${defaultModelId}`)
+    }
+
+    if (defaultProviderId && defaultModelId) {
+      const selectedModel = settings.models.find((model) => model.id === defaultModelId)
+
+      if (selectedModel?.providerId !== defaultProviderId) {
+        throw new Error('Default model must belong to the default provider.')
+      }
+    }
+
+    this.withTransaction(() => {
+      this.database.prepare('DELETE FROM app_preferences WHERE id = 1').run()
+      this.database.prepare('DELETE FROM provider_model_capabilities').run()
+      this.database.prepare('DELETE FROM provider_models').run()
+      this.database.prepare('DELETE FROM providers').run()
+
+      const insertProvider = this.database.prepare(`
+        INSERT INTO providers (id, name, provider_type, base_url, api_key, is_enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(settings.apiKey, settings.baseUrl, settings.model, settings.systemPrompt)
+
+      for (const provider of settings.providers) {
+        const timestamp = nowIsoString()
+        insertProvider.run(
+          provider.id,
+          provider.name,
+          provider.providerType,
+          normalizeBaseUrl(provider.baseUrl),
+          provider.apiKey,
+          provider.isEnabled ? 1 : 0,
+          timestamp,
+          timestamp,
+        )
+      }
+
+      const insertModel = this.database.prepare(`
+        INSERT INTO provider_models (
+          id,
+          provider_id,
+          model_key,
+          display_name,
+          description,
+          context_window,
+          max_output_tokens,
+          is_enabled,
+          sort_order,
+          supports_streaming,
+          raw_metadata_json,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      const insertCapability = this.database.prepare(`
+        INSERT INTO provider_model_capabilities (provider_model_id, capability)
+        VALUES (?, ?)
+      `)
+
+      for (const model of settings.models) {
+        const timestamp = nowIsoString()
+        insertModel.run(
+          model.id,
+          model.providerId,
+          model.modelKey,
+          model.displayName,
+          model.description,
+          model.contextWindow ?? null,
+          model.maxOutputTokens ?? null,
+          model.isEnabled ? 1 : 0,
+          model.sortOrder,
+          model.supportsStreaming ? 1 : 0,
+          JSON.stringify(model.rawMetadata ?? {}),
+          timestamp,
+          timestamp,
+        )
+
+        for (const capability of model.capabilities) {
+          insertCapability.run(model.id, capability)
+        }
+      }
+
+      this.database
+        .prepare(`
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
+          VALUES (1, ?, ?, ?)
+        `)
+        .run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt)
+    })
   }
 
   listConversations(): Conversation[] {

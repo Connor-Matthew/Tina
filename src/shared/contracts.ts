@@ -1,6 +1,51 @@
 export type ChatRole = 'system' | 'user' | 'assistant'
 
+export type ModelCapability =
+  | 'text'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'reasoning'
+  | 'tools'
+  | 'embedding'
+
+export interface ProviderSettings {
+  id: string
+  name: string
+  providerType: string
+  baseUrl: string
+  apiKey: string
+  isEnabled: boolean
+}
+
+export interface ProviderModelSettings {
+  id: string
+  providerId: string
+  modelKey: string
+  displayName: string
+  description: string
+  contextWindow?: number
+  maxOutputTokens?: number
+  isEnabled: boolean
+  sortOrder: number
+  supportsStreaming: boolean
+  capabilities: ModelCapability[]
+  rawMetadata: Record<string, unknown>
+}
+
+export interface AppPreferences {
+  defaultProviderId: string | null
+  defaultModelId: string | null
+  systemPrompt: string
+}
+
 export interface AppSettings {
+  providers: ProviderSettings[]
+  models: ProviderModelSettings[]
+  preferences: AppPreferences
+}
+
+export interface ModelRequestSettings {
   apiKey: string
   baseUrl: string
   model: string
@@ -34,8 +79,8 @@ export interface ChatComposerSubmission {
 
 export interface DesktopApi {
   getSettings(): Promise<AppSettings>
-  listAvailableModels(settings: AppSettings): Promise<string[]>
-  updateSettings(next: Partial<AppSettings>): Promise<AppSettings>
+  listAvailableModels(settings: ModelRequestSettings): Promise<string[]>
+  updateSettings(next: AppSettings): Promise<AppSettings>
   listConversations(): Promise<Conversation[]>
   createConversation(title?: string): Promise<Conversation>
   renameConversation(conversationId: string, title: string): Promise<Conversation>
