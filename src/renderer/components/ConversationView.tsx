@@ -124,13 +124,24 @@ export function ConversationView({
                     </button>
                   </div>
                 </form>
-              ) : isSending && isLastAssistantMessage ? (
+              ) : isSending && isLastAssistantMessage && !message.content ? (
                 <div className="message__bubble message__bubble--thinking">
                   <span className="message__thinking-dots">
                     <span></span>
                     <span></span>
                     <span></span>
                   </span>
+                </div>
+              ) : isSending && isLastAssistantMessage && message.content ? (
+                <div className="message__bubble">
+                  {message.role === 'assistant' ? (
+                    <MarkdownMessage content={message.content} isStreaming />
+                  ) : (
+                    <>
+                      {message.content}
+                      <span className="message__typing-cursor" />
+                    </>
+                  )}
                 </div>
               ) : message.content ? (
                 <div className="message__bubble">

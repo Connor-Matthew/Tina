@@ -293,6 +293,11 @@ function App() {
     )
   }
 
+  function handleStop() {
+    desktop.abortStreamChat()
+    chatStore.getState().stopStreaming()
+  }
+
   function applySettings(nextSettings: AppSettings, nextProviderId?: string | null, nextModelId?: string | null) {
     const selection = resolveSelection(
       nextSettings,
@@ -329,6 +334,7 @@ function App() {
 
   async function handleTestConnection() {
     const requestSettings = buildModelRequestSettings(
+      settings,
       activeProvider,
       activeModel ?? defaultModel,
       settings.preferences.systemPrompt,
@@ -356,6 +362,7 @@ function App() {
 
   async function handleDetectModels() {
     const requestSettings = buildModelRequestSettings(
+      settings,
       activeProvider,
       activeModel ?? defaultModel,
       settings.preferences.systemPrompt,
@@ -591,6 +598,7 @@ function App() {
                   setSelectedModelId(selection.modelId)
                 }}
                 onSend={handleSend}
+                onStop={handleStop}
                 selectedModelId={defaultModel?.id ?? null}
                 selectedModelLabel={
                   selectedComposerModelOption?.selectionLabel

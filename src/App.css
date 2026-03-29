@@ -742,35 +742,42 @@ body {
 .markdown-message h6 {
   line-height: 1.3;
   color: inherit;
+  margin-bottom: 12px;
 }
 
 .markdown-message h1 {
   font-size: 1.4rem;
   font-weight: 600;
+  margin-top: 8px;
 }
 
 .markdown-message h2 {
   font-size: 1.2rem;
   font-weight: 600;
+  margin-top: 4px;
 }
 
 .markdown-message h3 {
   font-size: 1.05rem;
   font-weight: 600;
+  margin-top: 4px;
 }
 
 .markdown-message ul,
 .markdown-message ol {
   padding-left: 1.3rem;
+  margin-bottom: 12px;
 }
 
 .markdown-message table {
   width: 100%;
   border-collapse: collapse;
-  overflow: hidden;
+  overflow-x: auto;
+  display: block;
   border-radius: 8px;
   border-style: hidden;
   box-shadow: 0 0 0 1px #e0e0e0;
+  margin: 12px 0;
 }
 
 .markdown-message thead {
@@ -791,6 +798,23 @@ body {
 
 .markdown-message li + li {
   margin-top: 0.25rem;
+}
+
+.markdown-message p {
+  margin-bottom: 10px;
+}
+
+.markdown-message img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.markdown-message hr {
+  border: none;
+  border-top: 1px solid #e8e8e8;
+  margin: 16px 0;
 }
 
 .markdown-message code {
@@ -816,6 +840,12 @@ body {
   overflow: hidden;
   background: #f8f8f8;
   border: 1px solid #e8e8e8;
+  margin: 8px 0;
+}
+
+.markdown-message__code-body {
+  background: #f8f8f8;
+  overflow-x: auto;
 }
 
 .markdown-message__code-header {
@@ -870,14 +900,15 @@ body {
 }
 
 .markdown-message__code-label {
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.08);
   color: #555;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  line-height: 1;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
 }
 
 .markdown-message__pre code {
@@ -2789,4 +2820,31 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Typing cursor for streaming messages */
+.markdown-message__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: rgb(205, 108, 70);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Inline typing cursor for non-markdown content */
+.message__typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: rgb(205, 108, 70);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
 }

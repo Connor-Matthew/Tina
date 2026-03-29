@@ -474,7 +474,7 @@ function formatMessageContent(message) {
 	if (!message.content) return `Attachments:\n${attachmentLines.join("\n")}`;
 	return `Attachments:\n${attachmentLines.join("\n")}\n\n${message.content}`;
 }
-async function* streamChatRequest(settings, messages, fetchImpl = fetch) {
+async function* streamChatRequest(settings, messages, fetchImpl = fetch, signal) {
 	if (!settings.apiKey.trim()) throw new Error("API key is required before sending a message.");
 	const body = {
 		...buildChatRequest(settings, messages),
@@ -486,7 +486,8 @@ async function* streamChatRequest(settings, messages, fetchImpl = fetch) {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${settings.apiKey}`
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
+		signal
 	});
 	if (!response.ok) {
 		const data = await response.json();
@@ -739,6 +740,7 @@ var SettingsStore = class {
 //#region src/main/ipc.ts
 var database;
 var settingsStore;
+var streamAbortControllers = /* @__PURE__ */ new Map();
 function getAttachmentsDir() {
 	const dir = join(app.getPath("userData"), "attachments");
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -826,12 +828,55 @@ function registerIpcHandlers() {
 	});
 	ipcMain.handle("chat:stream", async (event, messages) => {
 		const webContents = event.sender;
+		const conversationId = event.processId.toString();
 		const resolved = resolveAttachmentDataUrls(messages);
+		const abortController = new AbortController();
+		streamAbortControllers.set(conversationId, abortController);
 		try {
-			for await (const token of streamChatRequest(resolveCurrentRequestSettings(getSettingsStore().get()), resolved)) webContents.send("chat:stream-chunk", token);
+			for await (const token of streamChatRequest(resolveCurrentRequestSettings(getSettingsStore().get()), resolved, void 0, abortController.signal)) {
+				if (abortController.signal.aborted) break;
+				webContents.send("chat:stream-chunk", token);
+			}
 			webContents.send("chat:stream-end");
 		} catch (error) {
 			webContents.send("chat:stream-error", error instanceof Error ? error.message : "Stream failed.");
+		} finally {
+			streamAbortControllers.delete(conversationId);
+		}
+	});
+	ipcMain.handle("chat:abort", () => {
+		for (const controller of streamAbortControllers.values()) controller.abort();
+		streamAbortControllers.clear();
+	});
+	ipcMain.handle("chat:generate-title", async (_event, conversationId, messages) => {
+		try {
+			const settings = resolveCurrentRequestSettings(getSettingsStore().get());
+			const firstUserMessage = messages.find((m) => m.role === "user");
+			if (!firstUserMessage?.content) return "";
+			const titleMessages = [{
+				role: "user",
+				content: `Generate a very short title (max 10 words) for this conversation based on the user's message. Only return the title, no quotes or explanation.\n\nUser's message: ${firstUserMessage.content}`
+			}];
+			const response = await fetch(`${settings.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${settings.apiKey}`
+				},
+				body: JSON.stringify({
+					model: settings.model,
+					messages: titleMessages,
+					temperature: .7,
+					max_tokens: 50
+				})
+			});
+			if (!response.ok) return "";
+			const title = (await response.json()).choices?.[0]?.message?.content?.trim();
+			if (!title) return "";
+			getDatabase().renameConversation(conversationId, title);
+			return title;
+		} catch {
+			return "";
 		}
 	});
 }

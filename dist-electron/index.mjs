@@ -53,6 +53,12 @@ electron.contextBridge.exposeInMainWorld("desktop", {
 		electron.ipcRenderer.on("chat:stream-error", errorHandler);
 		electron.ipcRenderer.on("chat:stream-end", endHandler);
 		return electron.ipcRenderer.invoke("chat:stream", messages);
+	},
+	abortStreamChat() {
+		electron.ipcRenderer.invoke("chat:abort");
+	},
+	generateTitle(conversationId, messages) {
+		return electron.ipcRenderer.invoke("chat:generate-title", conversationId, messages);
 	}
 });
 //#endregion

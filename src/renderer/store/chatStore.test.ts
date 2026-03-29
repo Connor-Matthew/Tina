@@ -30,6 +30,9 @@ function createPersistence(overrides?: Partial<Parameters<typeof createChatStore
     deleteMessagesFrom: vi
       .fn<(conversationId: string, messageId: string) => Promise<void>>()
       .mockResolvedValue(),
+    generateTitle: vi
+      .fn<(conversationId: string, messages: unknown[]) => Promise<string>>()
+      .mockResolvedValue(''),
     ...overrides,
   }
 }
@@ -350,6 +353,70 @@ describe('chatStore', () => {
       { id: 'message-1', role: 'user', content: 'New prompt' },
       expect.objectContaining({ id: 'message-3', role: 'assistant', content: 'Fresh reply' }),
     ])
+  })
+
+  it('generates a title after the first assistant reply when title is still the default', async () => {
+    const persistence = createPersistence({
+      generateTitle: vi.fn().mockResolvedValue('帮助理解 React'),
+    })
+    let idCounter = 0
+    const store = createChatStore(persistence, () => `msg-${++idCounter}`)
+
+    await store.getState().createConversation()
+
+    const streamFromModel = vi.fn().mockImplementation(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: (e: string) => void, onEnd: () => void) => {
+        onToken('Hello')
+        onEnd()
+      },
+    )
+
+    await store.getState().streamMessage({ content: 'React 是什么', attachments: [] }, streamFromModel)
+
+    // Wait for async title generation
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(persistence.generateTitle).toHaveBeenCalledWith(
+      'conversation-1',
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: 'React 是什么' }),
+        expect.objectContaining({ role: 'assistant', content: 'Hello' }),
+      ]),
+    )
+    expect(persistence.renameConversation).toHaveBeenCalledWith('conversation-1', '帮助理解 React')
+    expect(store.getState().conversations[0]?.title).toBe('帮助理解 React')
+  })
+
+  it('does not generate a title when the conversation has a custom title', async () => {
+    const persistence = createPersistence({
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: 'conversation-1',
+          title: 'My Custom Title',
+          messages: [],
+        },
+      ]),
+      generateTitle: vi.fn().mockResolvedValue(''),
+    })
+    const store = createChatStore(persistence, () => 'ignored-id')
+
+    await store.getState().loadConversations()
+
+    const streamFromModel = vi.fn().mockImplementation(
+      async (_messages: unknown, onToken: (t: string) => void, _onError: (e: string) => void, onEnd: () => void) => {
+        onToken('Reply')
+        onEnd()
+      },
+    )
+
+    await store.getState().streamMessage(
+      { content: 'Hello', attachments: [] },
+      streamFromModel,
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(persistence.generateTitle).not.toHaveBeenCalled()
   })
 
   it('replays a user message by trimming later history and streaming a fresh assistant reply', async () => {

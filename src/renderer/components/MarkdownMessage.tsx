@@ -8,6 +8,105 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import mermaid from 'mermaid'
 import 'katex/dist/katex.min.css'
 
+// Custom remark plugin to auto-detect and wrap unescaped LaTeX math expressions
+function remarkMathAutoWrap() {
+  return (tree: { children?: unknown[] }) => {
+    const visit = (node: { children?: unknown[] }) => {
+      if (node.children && Array.isArray(node.children)) {
+        node.children = (node.children as RemarkNode[]).flatMap((child) => {
+          if (child.type === 'text') {
+            const text = (child as { type: 'text'; value: string }).value
+            const wrapped = autoWrapMath(text)
+            if (wrapped !== text) {
+              const parsed = parseMarkdownMath(wrapped)
+              return parsed as RemarkNode[]
+            }
+          }
+          return [child]
+        })
+        for (const child of node.children as RemarkNode[]) {
+          visit(child)
+        }
+      }
+    }
+    visit(tree as { children?: unknown[] })
+  }
+}
+
+// Detect LaTeX-like math patterns in inline text and wrap them
+function autoWrapMath(text: string): string {
+  if (text.includes('$$') || text.includes('$')) return text
+
+  // Strategy: find LaTeX-like expressions anywhere in text.
+  // A math expression starts with a backslash command or number, followed by
+  // math content (operators, greek letters, braces), optionally ending with
+  // operators or relational symbols.
+  // We skip matches that contain Chinese, or look like markdown link/list items.
+  const mathPattern = /(?<![[\s])((\\[a-zA-Z]+\{[^}]*(?:\{[^}]*\})*\}|\d+)[^\n$`\[\]()]*?(?:[+\-*/=<>≤≥≈×÷\\^_~]|\\[a-zA-Z]+)\s*)+/g
+
+  let result = ''
+  let lastIndex = 0
+  let match
+
+  while ((match = mathPattern.exec(text)) !== null) {
+    const mathContent = match[0].trimEnd()
+    // Skip if it contains Chinese — not valid LaTeX math
+    if (/[\u4e00-\u9fff]/.test(mathContent)) {
+      continue
+    }
+    // Skip if it looks like a markdown link label [text](url)
+    if (/^\[[^\]]*\]\(/.test(mathContent)) {
+      continue
+    }
+    // Skip if it starts with a markdown list/checklist pattern
+    if (/^[\s]*[-*+]\s/.test(mathContent)) {
+      continue
+    }
+
+    result += text.slice(lastIndex, match.index)
+    result += '$' + mathContent + '$'
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex === 0) return text
+  result += text.slice(lastIndex)
+  return result
+}
+
+// Parse wrapped markdown back into remark nodes (math nodes and text)
+function parseMarkdownMath(text: string): RemarkNode[] {
+  const nodes: RemarkNode[] = []
+  const regex = /(\${1,2})([^$]+)\1/g
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push({ type: 'text', value: text.slice(lastIndex, match.index) })
+    }
+    nodes.push({
+      type: 'math',
+      data: { hName: 'div', hProperties: {} },
+      value: match[2],
+    })
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push({ type: 'text', value: text.slice(lastIndex) })
+  }
+
+  return nodes
+}
+
+// Type for remark AST nodes
+type RemarkNode = {
+  type: string
+  value?: string
+  data?: Record<string, unknown>
+  children?: RemarkNode[]
+}
+
 // Initialize mermaid
 mermaid.initialize({
   startOnLoad: false,
@@ -17,10 +116,22 @@ mermaid.initialize({
 
 interface MarkdownMessageProps {
   content: string
+  isStreaming?: boolean
 }
 
 function formatLanguageLabel(language: string) {
-  return language.replace(/[^a-z0-9+#-]/gi, '').toUpperCase()
+  const langMap: Record<string, string> = {
+    js: 'JavaScript', jsx: 'JSX', ts: 'TypeScript', tsx: 'TSX',
+    py: 'Python', rb: 'Ruby', rs: 'Rust', go: 'Go', swift: 'Swift',
+    kt: 'Kotlin', java: 'Java', c: 'C', cpp: 'C++', cs: 'C#',
+    html: 'HTML', css: 'CSS', scss: 'SCSS', json: 'JSON', yaml: 'YAML',
+    yml: 'YAML', xml: 'XML', md: 'Markdown', sql: 'SQL', sh: 'Shell',
+    bash: 'Bash', zsh: 'Zsh', ps1: 'PowerShell', dockerfile: 'Dockerfile',
+    graphql: 'GraphQL', toml: 'TOML', ini: 'INI', lua: 'Lua',
+    php: 'PHP', r: 'R', dart: 'Dart', vue: 'Vue', svelte: 'Svelte',
+  }
+  const normalized = language.toLowerCase().replace(/[^a-z0-9+#-]/gi, '')
+  return langMap[normalized] || normalized.toUpperCase() || language
 }
 
 function CopyButton({ code }: { code: string }) {
@@ -103,14 +214,16 @@ function CodeBlock({ language, children }: CodeBlockProps) {
           <CopyButton code={children} />
         </div>
       </div>
-      <SyntaxHighlighter
-        customStyle={{ background: 'transparent', margin: 0, padding: 0 }}
-        language={language}
-        PreTag="div"
-        style={oneLight}
-      >
-        {displayCode.replace(/\n$/, '')}
-      </SyntaxHighlighter>
+      <div className="markdown-message__code-body">
+        <SyntaxHighlighter
+          customStyle={{ background: 'transparent', margin: 0, padding: '12px 14px' }}
+          language={language}
+          PreTag="div"
+          style={oneLight}
+        >
+          {displayCode.replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
       {shouldCollapse && collapsed && (
         <button
           className="markdown-message__expand-btn"
@@ -277,7 +390,7 @@ function ThinkingBlock({ content }: { content: string }) {
       {!collapsed && (
         <div className="markdown-message__thinking-content">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, remarkMath, remarkMathAutoWrap]}
             rehypePlugins={[rehypeKatex]}
             components={{
               p: ({ children }) => <p style={{ margin: '8px 0' }}>{children}</p>,
@@ -535,7 +648,7 @@ ${content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
   )
 }
 
-export function MarkdownMessage({ content }: MarkdownMessageProps) {
+export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessageProps) {
   // 预处理内容，分离思考过程和主要内容
   const { thinking, mainContent } = preprocessContent(content)
 
@@ -558,8 +671,9 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       {previewLinks.map((url, index) => (
         <LinkPreviewCard key={index} url={url} />
       ))}
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+      {mainContent.trim() ? (
+        <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath, remarkMathAutoWrap]}
         rehypePlugins={[rehypeKatex]}
         components={{
           a: ({ node: _node, ...props }) => <a {...props} rel="noreferrer" target="_blank" />,
@@ -606,7 +720,7 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
                   return (
                     <Callout type={callout.type}>
                       <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkMath]}
+                        remarkPlugins={[remarkGfm, remarkMath, remarkMathAutoWrap]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
                           p: ({ children }) => <>{children}</>,
@@ -625,6 +739,8 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       >
         {mainContent}
       </ReactMarkdown>
+      ) : null}
+      {isStreaming && <span className="markdown-message__cursor" />}
     </div>
   )
 }
