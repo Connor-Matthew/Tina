@@ -136,11 +136,6 @@ export function Composer({
     <form
       className="composer"
       onSubmit={handleSubmit}
-      style={{
-        width: '100%',
-        boxSizing: 'border-box',
-        minWidth: 0,
-      }}
     >
       <div
         className={`composer__surface${isDraggingFiles ? ' composer__surface--dragging' : ''}`}

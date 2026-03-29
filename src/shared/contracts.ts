@@ -81,6 +81,11 @@ export interface AppPreferences {
   defaultProviderId: string | null
   defaultModelId: string | null
   systemPrompt: string
+  temperature?: number
+  topP?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  maxTokens?: number
 }
 
 export interface AppSettings {
@@ -94,6 +99,11 @@ export interface ModelRequestSettings {
   baseUrl: string
   model: string
   systemPrompt: string
+  temperature?: number
+  topP?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  maxTokens?: number
 }
 
 export interface ChatAttachment {

@@ -53,6 +53,10 @@ const fallbackSettings: AppSettings = {
     defaultProviderId: 'provider-openai',
     defaultModelId: 'model-openai-gpt-4o-mini',
     systemPrompt: '',
+    temperature: 1.0,
+    topP: 1.0,
+    presencePenalty: 0,
+    frequencyPenalty: 0,
   },
 }
 
@@ -136,6 +140,7 @@ function resolveSelection(
 }
 
 function buildModelRequestSettings(
+  settings: AppSettings,
   provider: ProviderSettings | undefined,
   model: ProviderModelSettings | undefined,
   systemPrompt: string,
@@ -149,6 +154,11 @@ function buildModelRequestSettings(
     baseUrl: provider.baseUrl,
     model: model?.modelKey ?? '',
     systemPrompt,
+    temperature: settings.preferences.temperature,
+    topP: settings.preferences.topP,
+    presencePenalty: settings.preferences.presencePenalty,
+    frequencyPenalty: settings.preferences.frequencyPenalty,
+    maxTokens: settings.preferences.maxTokens,
   }
 }
 
@@ -302,6 +312,19 @@ function App() {
     setPersistedSettings(nextSettings)
     setSelectedProviderId(selection.providerId)
     setSelectedModelId(selection.modelId)
+  }
+
+  function handleUpdateChatParam(field: 'temperature' | 'topP' | 'presencePenalty' | 'frequencyPenalty' | 'maxTokens', value: string) {
+    const numValue = field === 'maxTokens'
+      ? (value.trim() ? Number(value) : undefined)
+      : Number(value)
+    applySettings({
+      ...settings,
+      preferences: {
+        ...settings.preferences,
+        [field]: numValue,
+      },
+    })
   }
 
   async function handleTestConnection() {
@@ -702,6 +725,7 @@ function App() {
                   },
                 })
               }}
+              onUpdateChatParam={handleUpdateChatParam}
             />
           )}
         </main>

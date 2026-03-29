@@ -76,6 +76,11 @@ function resolveCurrentRequestSettings(settings: AppSettings): ModelRequestSetti
     baseUrl: provider.baseUrl,
     model: model.modelKey,
     systemPrompt: settings.preferences.systemPrompt,
+    temperature: settings.preferences.temperature,
+    topP: settings.preferences.topP,
+    presencePenalty: settings.preferences.presencePenalty,
+    frequencyPenalty: settings.preferences.frequencyPenalty,
+    maxTokens: settings.preferences.maxTokens,
   }
 }
 

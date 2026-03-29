@@ -43,6 +43,11 @@ export function buildChatRequest(
 ): {
   model: string
   messages: OpenAIMessage[]
+  temperature?: number
+  top_p?: number
+  presence_penalty?: number
+  frequency_penalty?: number
+  max_tokens?: number
 } {
   const payloadMessages: OpenAIMessage[] = []
 
@@ -76,9 +81,17 @@ export function buildChatRequest(
     }
   }
 
+  const extras: Record<string, number> = {}
+  if (settings.temperature !== undefined) extras.temperature = settings.temperature
+  if (settings.topP !== undefined) extras.top_p = settings.topP
+  if (settings.presencePenalty !== undefined) extras.presence_penalty = settings.presencePenalty
+  if (settings.frequencyPenalty !== undefined) extras.frequency_penalty = settings.frequencyPenalty
+  if (settings.maxTokens !== undefined) extras.max_tokens = settings.maxTokens
+
   return {
     model: settings.model,
     messages: payloadMessages,
+    ...extras,
   }
 }
 
