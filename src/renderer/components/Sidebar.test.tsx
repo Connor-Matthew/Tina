@@ -20,13 +20,13 @@ function createSidebarProps() {
 }
 
 describe('Sidebar', () => {
-  it('renders the Tina title block in the sidebar', () => {
+  it('renders the Chats title block in the sidebar', () => {
     render(<Sidebar {...createSidebarProps()} />)
 
-    expect(screen.getByRole('heading', { name: 'Tina' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '新对话' })).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('搜索会话')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '打开设置' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Chats' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
   })
 
   it('keeps the conversation list as a dedicated scroll container when many items render', () => {
@@ -47,9 +47,8 @@ describe('Sidebar', () => {
     expect(list?.querySelectorAll('.sidebar__item')).toHaveLength(30)
   })
 
-  it('opens the conversation action menu and triggers rename, export, and delete callbacks', async () => {
+  it('opens the conversation action menu and triggers rename and export, and direct delete button triggers delete', async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const onRenameConversation = vi.fn()
     const onDeleteConversation = vi.fn()
     const onExportConversation = vi.fn()
@@ -71,25 +70,22 @@ describe('Sidebar', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: '打开会话操作 Project notes' }))
-    await user.click(screen.getByRole('menuitem', { name: '重命名' }))
+    await user.click(screen.getByRole('button', { name: 'Open actions for Project notes' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }))
 
-    const renameInput = screen.getByRole('textbox', { name: '重命名会话' })
+    const renameInput = screen.getByRole('textbox', { name: 'Rename conversation' })
     await user.clear(renameInput)
     await user.type(renameInput, 'Release plan')
     await user.keyboard('{Enter}')
 
     expect(onRenameConversation).toHaveBeenCalledWith('conversation-1', 'Release plan')
 
-    await user.click(screen.getByRole('button', { name: '打开会话操作 Project notes' }))
-    await user.click(screen.getByRole('menuitem', { name: '导出 Markdown' }))
+    await user.click(screen.getByRole('button', { name: 'Open actions for Project notes' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Export Markdown' }))
     expect(onExportConversation).toHaveBeenCalledWith('conversation-1')
 
-    await user.click(screen.getByRole('button', { name: '打开会话操作 Project notes' }))
-    await user.click(screen.getByRole('menuitem', { name: '删除' }))
+    await user.click(screen.getByRole('button', { name: 'Delete Project notes' }))
     expect(onDeleteConversation).toHaveBeenCalledWith('conversation-1')
-
-    confirmSpy.mockRestore()
   })
 
   it('shows only the conversation title in the sidebar item body', () => {

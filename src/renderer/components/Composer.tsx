@@ -188,11 +188,11 @@ export function Composer({
             {attachments.map((attachment) => (
               <div key={attachment.id} className="composer__attachment">
                 <span className="composer__attachment-kind">
-                  {attachment.kind === 'image' ? '图片' : '文件'}
+                  {attachment.kind === 'image' ? 'Image' : 'File'}
                 </span>
                 <span className="composer__attachment-name">{attachment.name}</span>
                 <button
-                  aria-label={`移除附件 ${attachment.name}`}
+                  aria-label={`Remove ${attachment.name}`}
                   className="composer__attachment-remove"
                   onClick={() => {
                     setAttachments((current) =>
@@ -209,10 +209,42 @@ export function Composer({
         ) : null}
 
         <textarea
+          ref={(el) => {
+            if (!el) return
+            el.style.height = 'auto'
+            const lineHeight = 24
+            const maxLines = 3
+            const maxHeight = lineHeight * maxLines
+            const scrollHeight = el.scrollHeight
+            el.style.height = scrollHeight > maxHeight ? `${maxHeight}px` : `${scrollHeight}px`
+            el.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden'
+          }}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder="要求后续变更"
-          rows={1}
+          onChange={(event) => {
+            setValue(event.target.value)
+            const el = event.target
+            el.style.height = 'auto'
+            const lineHeight = 24
+            const maxLines = 3
+            const maxHeight = lineHeight * maxLines
+            const scrollHeight = el.scrollHeight
+            el.style.height = `${Math.min(scrollHeight, maxHeight)}px`
+            el.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden'
+          }}
+          placeholder="Message Tina..."
+          style={{
+            width: '100%',
+            minWidth: 0,
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            boxShadow: 'none',
+            fontSize: '15px',
+            lineHeight: 1.5,
+            resize: 'none',
+            overflowY: 'hidden',
+            height: '24px',
+          }}
         />
 
         <div className="composer__footer" style={{ flexWrap: 'wrap' }}>
@@ -221,7 +253,7 @@ export function Composer({
               <button
                 aria-expanded={isToolsMenuOpen}
                 aria-haspopup="menu"
-                aria-label="打开附件和功能菜单"
+                aria-label="Open tools menu"
                 className="composer__tool-trigger"
                 onClick={() => {
                   setIsToolsMenuOpen((current) => !current)
@@ -243,7 +275,7 @@ export function Composer({
                     }}
                     type="button"
                   >
-                    添加照片和文件
+                    Add files
                   </button>
 
                   <button
@@ -253,7 +285,7 @@ export function Composer({
                     role="switch"
                     type="button"
                   >
-                    <span>Soul 模式</span>
+                    <span>Soul Mode</span>
                     <span
                       className={`composer__switch${soulMode ? ' composer__switch--on' : ''}`}
                     >
@@ -264,7 +296,7 @@ export function Composer({
               ) : null}
 
               <input
-                aria-label="添加照片和文件"
+                aria-label="Add files"
                 className="sr-only"
                 multiple
                 onChange={async (event) => {
@@ -285,7 +317,7 @@ export function Composer({
               <button
                 aria-expanded={isModelMenuOpen}
                 aria-haspopup="menu"
-                aria-label="选择模型"
+                aria-label="Select model"
                 className="composer__model-trigger"
                 onClick={() => {
                   setIsModelMenuOpen((current) => !current)
@@ -327,7 +359,7 @@ export function Composer({
           </div>
 
           <button
-            aria-label="发送消息"
+            aria-label="Send message"
             className="composer__send"
             disabled={!canSend}
             style={{

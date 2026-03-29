@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm install` — install dependencies
 - `npm run dev` — start the Vite dev server for the Electron app
 - `npm run build` — type-check and build renderer + Electron bundles into `dist/` and `dist-electron/`
+- `npm run dist` — build and package the app with electron-builder for macOS
 - `npm run lint` — run ESLint across the repository
 - `npx vitest run` — run the full test suite once
 - `npx vitest` — run tests in watch mode
@@ -15,34 +16,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-This is a small Electron desktop chat app built with Vite, React 19, TypeScript, and Zustand. The project has the standard Electron split between main process, preload bridge, and renderer UI.
+This is a small Electron desktop chat app built with Vite, React 19, TypeScript, and Zustand (vanilla). The project has the standard Electron split between main process, preload bridge, and renderer UI.
 
 ### Process boundaries
 
 - `src/main/index.ts` boots Electron, creates the `BrowserWindow`, registers IPC handlers, and loads either the Vite dev server URL or the built `index.html`.
 - `src/main/windowConfig.ts` owns `BrowserWindow` configuration. The app uses `titleBarStyle: 'hiddenInset'`, an empty window title, and a preload script with `contextIsolation: true` and `nodeIntegration: false`.
 - `src/preload/index.ts` is the only bridge from renderer to Electron. It exposes `window.desktop` via `contextBridge`.
-- `src/shared/contracts.ts` defines the shared types and the `DesktopApi` interface used on both sides of the preload boundary.
+- `src/shared/contracts.ts` defines the shared types, provider presets, and the `DesktopApi` interface used on both sides of the preload boundary.
+
+### Data model and persistence
+
+Settings and conversation data are persisted in a SQLite database (`tina.sqlite`) in the app's user data directory, managed by `src/main/database.ts` via `node:sqlite`. The schema has tables for:
+- `providers` — API providers (OpenAI, Anthropic, Ollama, etc.)
+- `provider_models` — models per provider, with capabilities and metadata
+- `app_preferences` — default provider/model selection and system prompt
+- `conversations` and `messages` — chat history with attachment metadata
+
+Image attachments are stored as binary files in an `attachments/` subdirectory of the user data dir, referenced by ID in the messages table. `ipc.ts` handles reading/writing these files and resolving attachment `dataUrl`s before chat requests are sent.
+
+`src/main/settings.ts` wraps the `AppDatabase` and exposes a `SettingsStore` class. On first launch, if no SQLite records exist, it migrates from the legacy `electron-store` format (flat API key / base URL / model / system prompt) into the new provider/model catalog. Settings normalization in `normalizeAppSettings()` also handles default fallback when the stored default provider or model is missing.
 
 ### Main-process responsibilities
 
-- `src/main/ipc.ts` is the central IPC registration point. Renderer requests should generally go through the handlers registered here.
-- `src/main/settings.ts` persists app settings with `electron-store`. It also normalizes settings through `mergeSettings()`, especially trimming trailing slashes from `baseUrl`.
-- `src/main/openai.ts` builds and sends chat-completions requests to an OpenAI-compatible `/chat/completions` endpoint. It prepends the configured system prompt when present.
+- `src/main/ipc.ts` is the central IPC registration point. Renderer requests go through the handlers registered here.
+- `src/main/database.ts` owns all SQLite operations: schema creation, migration, settings read/write, and conversation/message CRUD.
+- `src/main/settings.ts` owns the `SettingsStore` class (database-backed, with legacy migration on first load).
+- `src/main/openai.ts` builds and sends chat-completions requests to an OpenAI-compatible `/chat/completions` endpoint. Supports streaming via `streamChatRequest()` (AsyncGenerator). `buildChatRequest()` prepends the configured system prompt when present. Image attachments are encoded as `image_url` content parts.
+- Chat streaming is implemented in `ipc.ts` using `ipcMain.handle` for initiation and `webContents.send` for pushing chunks/errors/end events back to the renderer. The renderer sets up `ipcRenderer.on` listeners for `chat:stream-chunk`, `chat:stream-error`, and `chat:stream-end` before invoking `chat:stream`. `streamMessage` in the store wraps this in a Promise that resolves when `onEnd` fires, accumulating tokens via `onToken`.
 
 ### Renderer architecture
 
 - `src/App.tsx` composes the whole shell: sidebar, conversation pane, composer, and settings panel.
 - The renderer does not talk to Electron directly except through `getDesktopApi()` in `src/renderer/lib/electron.ts`, which returns `window.desktop`.
-- Conversation state is managed in a vanilla Zustand store in `src/renderer/store/chatStore.ts`, not React context. The store owns conversation creation, active thread selection, send state, and error state.
-- `sendMessage()` in the chat store optimistically appends the user message, then calls the injected async transport and appends the assistant reply on success.
+- Conversation state is managed in a vanilla Zustand store in `src/renderer/store/chatStore.ts` (uses `createStore` from `zustand/vanilla`, not the React hook). The store owns conversation CRUD, active thread selection, send state, error state, and streaming. It has two send modes: `sendMessage` (non-streaming, single-shot) and `streamMessage` (streaming via callback-based `onToken`/`onError`/`onEnd` wrappers). It also supports `resendMessage` and `editMessageAndResend` for conversation editing.
+- `sendMessage()` optimistically appends the user message, then calls the injected async transport and appends the assistant reply on success.
 
 ### UI structure
 
 - `src/renderer/components/Sidebar.tsx` handles thread search, thread switching, and opening settings.
 - `src/renderer/components/ConversationView.tsx` renders the current conversation or empty-state view.
-- `src/renderer/components/Composer.tsx` handles message input.
-- `src/renderer/components/SettingsPanel.tsx` edits API key, base URL, model, and system prompt.
+- `src/renderer/components/MarkdownMessage.tsx` renders individual messages with markdown (react-markdown + remark-gfm) and syntax highlighting (react-syntax-highlighter).
+- `src/renderer/components/Composer.tsx` handles message input and attachment management.
+- `src/renderer/components/SettingsPanel.tsx` manages provider catalog, model selection, and system prompt.
 - `src/App.css` contains most of the app-shell styling, including the custom drag region for the hidden title bar.
 
 ### Testing and tooling
@@ -56,9 +72,7 @@ This is a small Electron desktop chat app built with Vite, React 19, TypeScript,
 
 - Keep Electron security boundaries intact: renderer code should stay behind the preload API instead of importing Electron APIs directly.
 - When adding new desktop capabilities, update all three layers together: shared contract in `src/shared/contracts.ts`, preload exposure in `src/preload/index.ts`, and IPC/main-process implementation in `src/main/ipc.ts` or another main module.
+- `resolveCurrentRequestSettings()` in `ipc.ts` is the single function that resolves the active provider/model from settings into a `ModelRequestSettings` — it is called at the start of every chat request (both `chat:send` and `chat:stream`).
 - Chat requests currently target OpenAI-compatible APIs, not the Anthropic SDK. Settings defaults and request shape assume `/chat/completions` semantics.
-- The repository currently includes built artifacts in `dist-electron/`; check whether a requested change should modify source, generated output, or both before editing.
-
-
-
-\### 1. Plan Node Default - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)   - If something goes sideways, STOP and re-plan immediately - don't keep pushing   - Use plan mode for verification steps, not just building   - Write detailed specs upfront to reduce ambiguity   --- ### 2. Subagent Strategy - Use subagents liberally to keep main context window clean   - Offload research, exploration, and parallel analysis to subagents   - For complex problems, throw more compute at it via subagents   - One task per subagent for focused execution   --- ### 3. Self-Improvement Loop - After ANY correction from the user: update `tasks/lessons.md` with the pattern   - Write rules for yourself that prevent the same mistake   - Ruthlessly iterate on these lessons until mistake rate drops   - Review lessons at session start for relevant project   --- ### 4. Verification Before Done - Never mark a task complete without proving it works   - Diff behavior between main and your changes when relevant   - Ask yourself: "Would a staff engineer approve this?"   - Run tests, check logs, demonstrate correctness   --- ### 5. Demand Elegance (Balanced) - For non-trivial changes: pause and ask "is there a more elegant way?"   - If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"   - Skip this for simple, obvious fixes - don't over-engineer   - Challenge your own work before presenting it   --- ### 6. Autonomous Bug Fixing - When given a bug report: just fix it. Don't ask for hand-holding   - Point at logs, errors, failing tests - then resolve them   - Zero context switching required from the user   - Go fix failing CI tests without being told how   --- ## Task Management 1. **Plan First**: Write plan to `tasks/todo.md` with checkable items   2. **Verify Plan**: Check in before starting implementation   3. **Track Progress**: Mark items complete as you go   4. **Explain Changes**: High-level summary at each step   5. **Document Results**: Add review section to `tasks/todo.md`   6. **Capture Lessons**: Update `tasks/lessons.md` after corrections   --- ## Core Principles - **Simplicity First**: Make every change as simple as possible. Impact minimal code   - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards
+- The provider catalog supports multiple simultaneous providers. `resolveCurrentRequestSettings()` in `ipc.ts` selects the active provider/model from preferences at request time. When adding a new provider type, update `providerPresets` in `contracts.ts` and the detection logic in both `database.ts` and `settings.ts`.
+- The repository includes built artifacts in `dist-electron/`; check whether a requested change should modify source, generated output, or both before editing.

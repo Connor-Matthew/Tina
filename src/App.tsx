@@ -18,6 +18,7 @@ import type {
   ProviderModelSettings,
   ProviderSettings,
 } from './shared/contracts'
+import { getPresetByKey } from './shared/contracts'
 
 type AppView = 'chat' | 'settings'
 
@@ -193,6 +194,8 @@ function App() {
   const [detectedModelsByProvider, setDetectedModelsByProvider] = useState<Record<string, string[]>>({})
   const [modelDetectionErrors, setModelDetectionErrors] = useState<Record<string, string | null>>({})
   const [detectingProviderId, setDetectingProviderId] = useState<string | null>(null)
+  const [testingConnectionProviderId, setTestingConnectionProviderId] = useState<string | null>(null)
+  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [view, setView] = useState<AppView>('chat')
   const [searchValue, setSearchValue] = useState('')
 
@@ -256,6 +259,7 @@ function App() {
   const detectedModels = activeProvider ? detectedModelsByProvider[activeProvider.id] ?? [] : []
   const modelDetectionError = activeProvider ? modelDetectionErrors[activeProvider.id] ?? null : null
   const isDetectingModels = detectingProviderId === activeProvider?.id
+  const isTestingConnection = testingConnectionProviderId === activeProvider?.id
 
   const hasUnsavedSettings = useMemo(
     () => !areSettingsEqual(settings, persistedSettings),
@@ -298,6 +302,33 @@ function App() {
     setPersistedSettings(nextSettings)
     setSelectedProviderId(selection.providerId)
     setSelectedModelId(selection.modelId)
+  }
+
+  async function handleTestConnection() {
+    const requestSettings = buildModelRequestSettings(
+      activeProvider,
+      activeModel ?? defaultModel,
+      settings.preferences.systemPrompt,
+    )
+
+    if (!activeProvider || !requestSettings) {
+      return
+    }
+
+    setTestingConnectionProviderId(activeProvider.id)
+    setConnectionTestResult(null)
+
+    try {
+      await desktop.listAvailableModels(requestSettings)
+      setConnectionTestResult({ success: true, message: 'Connection successful' })
+    } catch (error) {
+      setConnectionTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Connection failed',
+      })
+    } finally {
+      setTestingConnectionProviderId(null)
+    }
   }
 
   async function handleDetectModels() {
@@ -437,7 +468,7 @@ function App() {
     <div className="app-frame">
       <div
         className="app-shell no-drag"
-        style={{ gridTemplateColumns: '280px minmax(0, 1fr)' }}
+        style={{ gridTemplateColumns: '260px minmax(0, 1fr)' }}
       >
         <div className="app-drag-region" data-testid="window-drag-region" />
 
@@ -554,11 +585,28 @@ function App() {
               defaultProviderId={settings.preferences.defaultProviderId}
               hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
+              isTestingConnection={isTestingConnection}
+              connectionTestResult={connectionTestResult}
               modelDetectionError={modelDetectionError}
               providerModels={providerModels}
               settings={settings}
               onAddModel={handleAddModel}
               onAddProvider={handleAddProvider}
+              onTestConnection={handleTestConnection}
+              onDeleteProvider={(providerId) => {
+                const nextSettings: AppSettings = {
+                  ...settings,
+                  providers: settings.providers.filter((p) => p.id !== providerId),
+                  models: settings.models.filter((m) => m.providerId !== providerId),
+                }
+                const remaining = nextSettings.providers
+                if (remaining.length > 0) {
+                  const selection = resolveSelection(nextSettings, remaining[0].id, null)
+                  applySettings(nextSettings, selection.providerId, selection.modelId)
+                } else {
+                  applySettings(nextSettings, null, null)
+                }
+              }}
               onDetectModels={handleDetectModels}
               onImportDetectedModel={handleImportDetectedModel}
               onSave={handleSaveSettings}
@@ -631,6 +679,19 @@ function App() {
                     [activeProvider.id]: null,
                   }))
                 }
+              }}
+              onUpdateProviderPreset={(presetKey) => {
+                const preset = getPresetByKey(presetKey)
+                if (!preset || !activeProvider) {
+                  return
+                }
+
+                updateActiveProvider((provider) => ({
+                  ...provider,
+                  name: preset.name,
+                  providerType: preset.providerType,
+                  baseUrl: preset.defaultBaseUrl,
+                }))
               }}
               onUpdateSystemPrompt={(value) => {
                 applySettings({

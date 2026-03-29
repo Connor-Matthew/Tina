@@ -9,6 +9,12 @@
 
 ## Review
 
+- Reworked `src/renderer/components/SettingsPanel.tsx` so the provider settings page now reads as a clearer operations surface: lighter overview header, richer provider sidebar state, grouped connection cards, a dedicated role/safety panel, and a more explicit model-catalog workspace.
+- Refined `src/App.css` to support the new vendor-management layout with Swiss/editorial styling cues, stronger section hierarchy, improved hover/focus affordances, responsive card grids, and clearer separation between routine and destructive actions.
+- Preserved existing settings behavior, labels, tab semantics, and desktop two-column contract so the current renderer tests for provider flows still pass unchanged.
+- Verified with `npx vitest run src/App.test.tsx` and `npm run build`.
+- Build still reports the existing large client chunk warning and the existing Electron `inlineDynamicImports` deprecation warning.
+
 - Added an OpenAI-compatible provider model discovery request in the main process and exposed it through the shared desktop contract, preload bridge, and IPC handlers.
 - The provider settings page now supports manual model input plus a `检测模型` action, inline status feedback, and clickable detected model chips that write back into the editable `Model` field before save.
 - Verified with `npx vitest run src/main/openai.test.ts src/App.test.tsx` and `npm run build`.
@@ -154,3 +160,130 @@
 - Refined the action-chip styling in `src/App.css` to make the general controls quieter and give the edit action a warmer, higher-contrast treatment with stronger hover and focus states.
 - Added focused renderer coverage in `src/App.test.tsx` that verifies the edit control keeps its dedicated class and icon treatment inside the message action bar.
 - Verified with `npx vitest run src/App.test.tsx`.
+
+# Message Action Reveal + Editor Refresh
+
+- [ ] Remove the edit icon and keep the edit affordance text-first.
+- [ ] Make low-priority message actions stay quiet until the message row is hovered or keyboard-focused.
+- [ ] Refresh the inline editor surface and action row so it visually matches the refined conversation controls.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- Action bar behavior:
+  - Keep all actions mounted for accessibility and tests, but lower their default prominence with opacity and softer surfaces.
+  - Reveal stronger action contrast when the message row is hovered or contains focus, so desktop usage feels cleaner without hiding keyboard access.
+  - Keep `编辑` as the clearest action in the row, but text-only.
+- Inline editor:
+  - Turn the editor into a dedicated surface with a clearer boundary from the message bubble.
+  - Differentiate `保存并重发` and `取消` as primary/secondary controls using the same visual language as the refreshed action bar.
+- Scope:
+  - Limit changes to `src/renderer/components/ConversationView.tsx`, `src/App.css`, and focused renderer tests.
+  - Leave message behavior, IPC, and persistence unchanged.
+
+## Review
+
+- Removed the temporary pencil icon from the `编辑` action in `src/renderer/components/ConversationView.tsx` so the control stays text-first while keeping its dedicated emphasis class.
+- Updated `src/App.css` so message action rows now use a quieter default presentation and gain stronger presence on message hover or keyboard focus, which reduces idle visual noise without hiding controls.
+- Refreshed the inline editor in `src/App.css` into a dedicated surfaced panel with clearer textarea focus treatment and a stronger primary `保存并重发` control plus quieter `取消` action.
+- Added focused renderer coverage in `src/App.test.tsx` for the text-only edit control, the contextual action-row class, and the editor surface/action layout.
+- Verified with `npx vitest run src/App.test.tsx`.
+
+# Message Action Weighting
+
+- [ ] Differentiate user and assistant action bars so user-message controls feel more immediately actionable.
+- [ ] Reduce the default aggression of `删除` while keeping a clear danger hover/focus state.
+- [ ] Add focused renderer coverage for the new action-bar variants.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- Action hierarchy:
+  - Give user-message action rows slightly higher baseline contrast and stronger chip surfaces than assistant-message rows.
+  - Keep assistant-message controls more subdued so the response content remains primary.
+  - Preserve the existing hover/focus reveal behavior for both roles.
+- Danger treatment:
+  - Make `删除` neutral-to-cautious at rest instead of bright danger by default.
+  - Escalate to a clearer red-tinted state on hover and focus so the destructive nature is communicated at the moment of intent.
+- Scope:
+  - Limit changes to renderer structure, CSS, and focused tests.
+  - Keep all message semantics and action ordering unchanged.
+
+## Review
+
+- Updated `src/renderer/components/ConversationView.tsx` so each action row now carries a role-specific modifier class, allowing user and assistant message controls to be tuned independently without changing behavior.
+- Refined `src/App.css` so user-message action chips have slightly stronger baseline presence than assistant-message chips, while both still use the same hover/focus reveal pattern.
+- Softened the default `删除` treatment in `src/App.css` so it reads cautious at rest and only escalates into a red-tinted destructive state on hover and keyboard focus.
+- Added focused renderer coverage in `src/App.test.tsx` for the user/assistant action-row variants and the calmer danger action baseline.
+- Verified with `npx vitest run src/App.test.tsx`.
+
+# Bubble-Local Action Reveal
+
+- [ ] Tighten the action reveal trigger so it follows the message body area instead of the full message row.
+- [ ] Keep keyboard-focus reveal intact after the structure change.
+- [ ] Add focused renderer coverage for the new message-body wrapper.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- Structure:
+  - Introduce a wrapper around attachments, bubble/editor, and actions so hover reveal can attach to the content body rather than the full article.
+  - Keep labels outside that wrapper so hovering the sender label alone does not trigger the action bar.
+- Interaction:
+  - Move the contextual reveal selector from `.message` to the new message-body container.
+  - Preserve `focus-within` behavior so keyboard users still surface actions when tabbing into the row.
+- Scope:
+  - Limit the change to renderer structure, CSS, and focused tests.
+  - Leave message ordering, editing, and action semantics unchanged.
+
+## Review
+
+- Updated `src/renderer/components/ConversationView.tsx` so attachments, bubble/editor, and action controls now live inside a dedicated `message__body` wrapper while the sender label stays outside it.
+- Changed the reveal trigger in `src/App.css` from the whole `.message` row to `.message__body`, which makes the action bar respond to hover/focus around the actual message surface instead of the full row width.
+- Added focused renderer coverage in `src/App.test.tsx` that verifies the new message-body wrapper contains attachments, bubble, and actions in the intended order.
+- Verified with `npx vitest run src/App.test.tsx`.
+
+# Role-Specific Reveal Motion
+
+- [ ] Tune user and assistant action rows with different default offsets and motion curves.
+- [ ] Keep the current hover/focus behavior while making user actions feel slightly more assertive than assistant actions.
+- [ ] Add focused renderer coverage for the role-specific action-row motion classes.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- Motion hierarchy:
+  - Keep a shared contextual-action base, then layer user/assistant-specific transform and transition timing on top.
+  - Let user action rows reveal with a slightly crisper motion and assistant rows reveal with a softer, calmer motion.
+- Scope:
+  - Limit the change to `src/App.css` plus focused renderer coverage.
+  - Keep structure, semantics, and action ordering unchanged.
+
+## Review
+
+- Tuned `src/App.css` so user-message action rows now start with a slightly larger vertical offset and a crisper cubic-bezier reveal, while assistant-message rows keep a softer easing and longer transition.
+- Kept the shared contextual reveal behavior intact, so the only change is the feel of the motion rather than when or how controls become available.
+- Added focused renderer coverage in `src/App.test.tsx` to verify both user and assistant action rows retain the role-specific contextual classes that drive the motion tuning.
+- Verified with `npx vitest run src/App.test.tsx`.
+
+# Provider Settings Page Refresh
+
+- [ ] Review the current provider settings layout, tests, and visual constraints.
+- [ ] Refactor the provider settings page into clearer overview, connection, and model-management surfaces.
+- [ ] Improve provider sidebar scanning and local status affordances without changing behavior or accessible labels.
+- [ ] Run targeted verification and record the result here.
+
+## Plan
+
+- Layout direction:
+  - Keep the tested top-level structure intact: status rail, provider sidebar, tabs, and the desktop two-column settings grid.
+  - Reduce the decorative weight of the header and move the main emphasis into the editable surfaces.
+  - Group the connection tab into distinct cards for provider identity, connection credentials, role/default actions, and danger actions.
+- Models experience:
+  - Keep existing button names and labels, but present the model list, model editor, and detection/import area as clearer adjacent surfaces.
+  - Preserve current tab behavior and accessible roles so renderer tests keep passing.
+- Scope:
+  - Limit implementation to `src/renderer/components/SettingsPanel.tsx`, `src/App.css`, and any focused test updates only if needed.
+  - Do not change IPC, persistence, or settings semantics.
+
+## Review

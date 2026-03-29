@@ -92,7 +92,7 @@ import App from './App'
 function getSidebarSettingsButton(container: HTMLElement) {
   const sidebarBottom = container.querySelector('.sidebar__bottom')
   expect(sidebarBottom).not.toBeNull()
-  return within(sidebarBottom as HTMLElement).getByRole('button', { name: '打开设置' })
+  return within(sidebarBottom as HTMLElement).getByRole('button', { name: 'Open settings' })
 }
 
 function getConversationList(container: HTMLElement) {
@@ -195,15 +195,15 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByText('请帮我整理一下')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '复制用户消息 请帮我整理一下' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '编辑用户消息 请帮我整理一下' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '重发用户消息 请帮我整理一下' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '删除用户消息 请帮我整理一下' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '复制助手消息 当然可以' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '删除助手消息 当然可以' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy user message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit user message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Resend user message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete user message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy assistant message' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete assistant message' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '复制用户消息 请帮我整理一下' }))
-    await user.click(screen.getByRole('button', { name: '复制助手消息 当然可以' }))
+    await user.click(screen.getByRole('button', { name: 'Copy user message' }))
+    await user.click(screen.getByRole('button', { name: 'Copy assistant message' }))
 
     expect(writeTextMock).toHaveBeenNthCalledWith(1, '请帮我整理一下')
     expect(writeTextMock).toHaveBeenNthCalledWith(2, '当然可以')
@@ -232,7 +232,7 @@ describe('App', () => {
     expect(bubble?.compareDocumentPosition(actions as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
-  it('gives the edit action a distinct visual treatment inside user message actions', async () => {
+  it('gives the edit action a distinct text-first treatment inside user message actions', async () => {
     desktopApi.listConversations.mockResolvedValueOnce([
       {
         id: 'conversation-1',
@@ -245,17 +245,167 @@ describe('App', () => {
 
     expect(await screen.findByText('请优化编辑入口')).toBeInTheDocument()
 
-    const editButton = screen.getByRole('button', { name: '编辑用户消息 请优化编辑入口' })
-    const editIcon = editButton.querySelector('svg')
-    const editLabel = editButton.querySelector('span')
+    const editButton = screen.getByRole('button', { name: 'Edit user message' })
     const actions = container.querySelector('.message__actions')
 
     expect(actions).not.toBeNull()
     expect(editButton).toHaveClass('message__action', 'message__action--edit')
     expect(editButton).toBeInTheDocument()
-    expect(editIcon).not.toBeNull()
-    expect(editLabel).not.toBeNull()
-    expect(editLabel).toHaveTextContent('编辑')
+    expect(editButton.querySelector('svg')).not.toBeNull()
+    expect(editButton.textContent).toBe('')
+  })
+
+  it('keeps message actions quiet until the row is hovered or focused', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [{ id: 'message-1', role: 'user', content: '减少操作条噪音' }],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('减少操作条噪音')).toBeInTheDocument()
+
+    const message = container.querySelector('.message--user')
+    const actions = message?.querySelector('.message__actions')
+    const contextualActions = message?.querySelector('.message__actions--contextual')
+
+    expect(message).not.toBeNull()
+    expect(actions).not.toBeNull()
+    expect(contextualActions).not.toBeNull()
+  })
+
+  it('groups attachments, bubble, and actions inside a dedicated message body wrapper', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          {
+            id: 'message-1',
+            role: 'user',
+            content: '把浮现区域收紧到消息体',
+            attachments: [{ id: 'attachment-1', kind: 'file', name: 'brief.md' }],
+          },
+        ],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('把浮现区域收紧到消息体')).toBeInTheDocument()
+
+    const message = container.querySelector('.message--user')
+    const label = message?.querySelector('.message__label')
+    const body = message?.querySelector('.message__body')
+    const attachments = body?.querySelector('.message__attachments')
+    const bubble = body?.querySelector('.message__bubble')
+    const actions = body?.querySelector('.message__actions')
+
+    expect(label).not.toBeNull()
+    expect(body).not.toBeNull()
+    expect(attachments).not.toBeNull()
+    expect(bubble).not.toBeNull()
+    expect(actions).not.toBeNull()
+    expect(label?.compareDocumentPosition(body as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(bubble?.compareDocumentPosition(actions as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('uses stronger action-bar treatment for user messages than assistant messages', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          { id: 'message-1', role: 'user', content: '用户操作应该更明显' },
+          { id: 'message-2', role: 'assistant', content: '助手操作应该更克制' },
+        ],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('用户操作应该更明显')).toBeInTheDocument()
+    expect(screen.getByText('助手操作应该更克制')).toBeInTheDocument()
+
+    const userMessage = container.querySelector('.message--user')
+    const assistantMessage = container.querySelector('.message--assistant')
+    const userActions = userMessage?.querySelector('.message__actions')
+    const assistantActions = assistantMessage?.querySelector('.message__actions')
+
+    expect(userActions).toHaveClass('message__actions--user')
+    expect(assistantActions).toHaveClass('message__actions--assistant')
+  })
+
+  it('keeps role-specific contextual action classes for reveal motion tuning', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [
+          { id: 'message-1', role: 'user', content: '用户动作更利落' },
+          { id: 'message-2', role: 'assistant', content: '助手动作更柔和' },
+        ],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('用户动作更利落')).toBeInTheDocument()
+    expect(screen.getByText('助手动作更柔和')).toBeInTheDocument()
+
+    const userActions = container.querySelector('.message--user .message__actions')
+    const assistantActions = container.querySelector('.message--assistant .message__actions')
+
+    expect(userActions).toHaveClass('message__actions--contextual', 'message__actions--user')
+    expect(assistantActions).toHaveClass('message__actions--contextual', 'message__actions--assistant')
+  })
+
+  it('keeps delete actions calm by default and marks them as danger actions', async () => {
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [{ id: 'message-1', role: 'assistant', content: '删除要更谨慎一些' }],
+      },
+    ])
+
+    render(<App />)
+
+    expect(await screen.findByText('删除要更谨慎一些')).toBeInTheDocument()
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete assistant message' })
+
+    expect(deleteButton).toHaveClass('message__action', 'message__action--danger')
+  })
+
+  it('renders the inline editor as a dedicated surface with primary and secondary controls', async () => {
+    const user = userEvent.setup()
+    desktopApi.listConversations.mockResolvedValueOnce([
+      {
+        id: 'conversation-1',
+        title: 'Saved thread',
+        messages: [{ id: 'message-1', role: 'user', content: '润色编辑面板' }],
+      },
+    ])
+
+    const { container } = render(<App />)
+
+    expect(await screen.findByText('润色编辑面板')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit user message' }))
+
+    const editor = container.querySelector('.message__editor')
+    const editorActions = editor?.querySelector('.message__editor-actions')
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+    const submitButton = screen.getByRole('button', { name: 'Save & resend' })
+
+    expect(editor).not.toBeNull()
+    expect(editorActions).not.toBeNull()
+    expect(cancelButton).toHaveClass('message__action')
+    expect(submitButton).toHaveAttribute('type', 'submit')
   })
 
   it('lets the user edit a user message inline and resend from that point', async () => {
@@ -284,12 +434,12 @@ describe('App', () => {
 
     expect(await screen.findByText('旧问题')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '编辑用户消息 旧问题' }))
+    await user.click(screen.getByRole('button', { name: 'Edit user message' }))
 
-    const editor = screen.getByRole('textbox', { name: '编辑消息' })
+    const editor = screen.getByRole('textbox', { name: 'Edit message' })
     await user.clear(editor)
     await user.type(editor, '改过的问题')
-    await user.click(screen.getByRole('button', { name: '保存并重发' }))
+    await user.click(screen.getByRole('button', { name: 'Save & resend' }))
 
     expect(desktopApi.updateMessage).toHaveBeenCalledWith('conversation-1', 'message-1', '改过的问题')
     expect(desktopApi.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-2')
@@ -323,7 +473,8 @@ describe('App', () => {
 
     expect(await screen.findByText('第二问')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '删除用户消息 第二问' }))
+    const secondQuestionMessage = screen.getByText('第二问').closest('.message')
+    await user.click(within(secondQuestionMessage as HTMLElement).getByRole('button', { name: 'Delete user message' }))
 
     expect(desktopApi.deleteMessagesFrom).toHaveBeenCalledWith('conversation-1', 'message-3')
     expect(screen.queryByText('第二问')).not.toBeInTheDocument()
@@ -360,7 +511,7 @@ describe('App', () => {
     expect(dragRegion).toBeEmptyDOMElement()
     expect(appShell).not.toBeNull()
     expect(appShell as HTMLElement).toHaveStyle({
-      gridTemplateColumns: '280px minmax(0, 1fr)',
+      gridTemplateColumns: '260px minmax(0, 1fr)',
     })
     expect(workspace).not.toBeNull()
     expect(workspace as HTMLElement).toHaveAttribute(
@@ -372,7 +523,7 @@ describe('App', () => {
   it('shows a minimal centered empty-state title in chat view', async () => {
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: '今天想聊点什么' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'What would you like to chat about?' })).toBeInTheDocument()
     expect(screen.queryByText('今天想聊点什么？')).not.toBeInTheDocument()
     expect(screen.queryByText('配置好模型后，你可以在这里开始你的第一段对话。')).not.toBeInTheDocument()
     expect(screen.queryByText('帮我总结这段需求')).not.toBeInTheDocument()
@@ -383,7 +534,7 @@ describe('App', () => {
   it('lets the composer fill the available chat width without clipping the send area', async () => {
     render(<App />)
 
-    const textarea = await screen.findByPlaceholderText('要求后续变更')
+    const textarea = await screen.findByPlaceholderText('Message Tina...')
     const composer = textarea.closest('form')
 
     expect(composer).not.toBeNull()
@@ -400,7 +551,7 @@ describe('App', () => {
   it('lets the composer controls wrap and shrink instead of clipping in narrower chat widths', async () => {
     const { container } = render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
     const footer = container.querySelector('.composer__footer')
     const controls = container.querySelector('.composer__controls')
@@ -421,7 +572,7 @@ describe('App', () => {
   it('does not force the document body to stay wider than the Electron window minimum', async () => {
     render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
     expect(indexCss).not.toMatch(/body\s*\{[^}]*min-width:\s*1100px\s*;/s)
   })
@@ -429,7 +580,7 @@ describe('App', () => {
   it('uses fluid workspace side padding instead of switching it at a single breakpoint', async () => {
     render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
     expect(appCss).toMatch(/\.workspace\s*\{[^}]*--workspace-inline-padding:\s*clamp\(/s)
     expect(appCss).not.toMatch(/@media\s*\(max-width:\s*1080px\)\s*\{[^}]*\.workspace\s*\{/s)
@@ -439,12 +590,12 @@ describe('App', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: '打开附件和功能菜单' }))
+    await user.click(await screen.findByRole('button', { name: 'Open tools menu' }))
 
     expect(screen.getByRole('menu')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '添加照片和文件' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add files' })).toBeInTheDocument()
 
-    const soulSwitch = screen.getByRole('switch', { name: 'Soul 模式' })
+    const soulSwitch = screen.getByRole('switch', { name: 'Soul Mode' })
     expect(soulSwitch).toHaveAttribute('aria-checked', 'false')
 
     await user.click(soulSwitch)
@@ -455,7 +606,7 @@ describe('App', () => {
   it('renders the plus trigger without a filled outer background', async () => {
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: '打开附件和功能菜单' })).toHaveAttribute(
+    expect(await screen.findByRole('button', { name: 'Open tools menu' })).toHaveAttribute(
       'style',
       expect.stringContaining('background-color: transparent'),
     )
@@ -464,7 +615,7 @@ describe('App', () => {
   it('renders the send button as a smaller terracotta-orange square', async () => {
     render(<App />)
 
-    const sendButton = await screen.findByRole('button', { name: '发送消息' })
+    const sendButton = await screen.findByRole('button', { name: 'Send message' })
 
     expect(sendButton).toHaveAttribute(
       'style',
@@ -480,7 +631,7 @@ describe('App', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: '选择模型' }))
+    await user.click(await screen.findByRole('button', { name: 'Select model' }))
     await user.click(screen.getByRole('menuitemradio', { name: /GPT-5\.4/i }))
 
     expect(desktopApi.updateSettings).toHaveBeenCalledWith(
@@ -498,7 +649,7 @@ describe('App', () => {
     desktopApi.getSettings.mockResolvedValueOnce(createMultiProviderSettings())
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: '选择模型' }))
+    await user.click(await screen.findByRole('button', { name: 'Select model' }))
     await user.click(screen.getByRole('menuitemradio', { name: /Claude 3\.7 Sonnet/i }))
 
     expect(desktopApi.updateSettings).toHaveBeenCalledWith(
@@ -520,12 +671,12 @@ describe('App', () => {
     )
     render(<App />)
 
-    const uploadInput = await screen.findByLabelText('添加照片和文件')
+    const uploadInput = await screen.findByLabelText('Add files')
     const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
 
     await user.upload(uploadInput, file)
-    await user.type(screen.getByPlaceholderText('要求后续变更'), '请处理这个文件')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.type(screen.getByPlaceholderText('Message Tina...'), '请处理这个文件')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(desktopApi.streamChat).toHaveBeenCalledWith(
       [
@@ -563,7 +714,7 @@ describe('App', () => {
 
     expect(await screen.findByText('requirements.txt')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(desktopApi.streamChat).toHaveBeenCalledWith(
       [
@@ -614,8 +765,8 @@ describe('App', () => {
     )
     const { container } = render(<App />)
 
-    await user.type(await screen.findByPlaceholderText('要求后续变更'), '这条消息应该靠右显示')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.type(await screen.findByPlaceholderText('Message Tina...'), '这条消息应该靠右显示')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByText('这条消息应该靠右显示')).toBeInTheDocument()
 
@@ -628,7 +779,7 @@ describe('App', () => {
   it('keeps the conversation scrollbar inset at 2px from the right edge', async () => {
     render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
     expect(appCss).toMatch(
       /\.workspace\s*\{[^}]*--conversation-scrollbar-inline-end-gap:\s*2px/s,
@@ -644,9 +795,9 @@ describe('App', () => {
   it('keeps the sidebar scrollbars inset at 2px from the sidebar right edge', async () => {
     render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
-    expect(appCss).toMatch(/\.sidebar\s*\{[^}]*--sidebar-inline-padding:\s*20px/s)
+    expect(appCss).toMatch(/\.sidebar\s*\{[^}]*--sidebar-inline-padding:\s*12px/s)
     expect(appCss).toMatch(/\.sidebar\s*\{[^}]*--sidebar-scrollbar-inline-end-gap:\s*2px/s)
     expect(appCss).toMatch(
       /\.sidebar__list\s*\{[\s\S]*?padding-right:\s*calc\([\s\S]*?var\(--sidebar-inline-padding\)[\s\S]*?var\(--sidebar-scrollbar-inline-end-gap\)[\s\S]*?\)/s,
@@ -665,9 +816,9 @@ describe('App', () => {
   it('keeps assistant replies narrower than the full message track for better reading rhythm', async () => {
     render(<App />)
 
-    await screen.findByPlaceholderText('要求后续变更')
+    await screen.findByPlaceholderText('Message Tina...')
 
-    expect(appCss).toMatch(/\.message--assistant\s*\{[^}]*width:\s*min\(100%,\s*780px\)/s)
+    expect(appCss).toMatch(/\.message--assistant\s*\{[^}]*width:\s*min\(100%,\s*720px\)/s)
     expect(appCss).toMatch(/\.message--assistant\s+\.message__bubble\s*\{[^}]*max-width:\s*100%/s)
   })
 
@@ -681,8 +832,8 @@ describe('App', () => {
     )
     render(<App />)
 
-    await user.type(await screen.findByPlaceholderText('要求后续变更'), '请用 markdown 回复')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.type(await screen.findByPlaceholderText('Message Tina...'), '请用 markdown 回复')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByRole('heading', { name: '回答标题' })).toBeInTheDocument()
     expect(screen.getByRole('list')).toBeInTheDocument()
@@ -702,8 +853,8 @@ describe('App', () => {
     )
     render(<App />)
 
-    await user.type(await screen.findByPlaceholderText('要求后续变更'), '请给我一个表格')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.type(await screen.findByPlaceholderText('Message Tina...'), '请给我一个表格')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByRole('table')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: '模型' })).toBeInTheDocument()
@@ -721,8 +872,8 @@ describe('App', () => {
     )
     render(<App />)
 
-    await user.type(await screen.findByPlaceholderText('要求后续变更'), '请给我代码示例')
-    await user.click(screen.getByRole('button', { name: '发送消息' }))
+    await user.type(await screen.findByPlaceholderText('Message Tina...'), '请给我代码示例')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByText('TS')).toBeInTheDocument()
 
@@ -741,31 +892,27 @@ describe('App', () => {
 
     await user.click(getSidebarSettingsButton(container))
 
-    expect(screen.getAllByRole('heading', { name: '设置' }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByRole('heading', { name: 'Settings' }).length).toBeGreaterThanOrEqual(1)
     expect(getConversationList(container)).toBeNull()
-    expect(screen.getByRole('heading', { name: '连接控制台' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '供应商列表' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '模型目录与行为策略' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Connection' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Models' })).toBeInTheDocument()
+    expect(container.querySelector('.settings-sidebar__header span')).toBeInTheDocument()
   })
 
-  it('shows a settings status rail with provider, connection, and save state', async () => {
+  it('shows a compact settings status rail with save state', async () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
 
-    const statusRail = screen.getByLabelText('设置状态栏')
+    const statusRail = screen.getByLabelText('Settings status rail')
 
-    expect(screen.getByText('当前供应商')).toBeInTheDocument()
-    expect(screen.getByText('连接状态')).toBeInTheDocument()
-    expect(screen.getByText('保存状态')).toBeInTheDocument()
-    expect(within(statusRail).getByText('OpenAI')).toBeInTheDocument()
-    expect(within(statusRail).getByText('未配置')).toBeInTheDocument()
-    expect(within(statusRail).getByText('已同步')).toBeInTheDocument()
+    expect(screen.getByText('Save state')).toBeInTheDocument()
+    expect(within(statusRail).getByText('Synced')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('API Key'), 'draft-key')
 
-    expect(within(statusRail).getByText('有更改待保存')).toBeInTheDocument()
+    expect(within(statusRail).getByText('Unsaved')).toBeInTheDocument()
   })
 
   it('keeps the settings workspace in two columns at the default desktop app width', async () => {
@@ -774,24 +921,23 @@ describe('App', () => {
 
     await user.click(getSidebarSettingsButton(container))
 
-    const settingsGrid = container.querySelector('.settings-page__grid')
+    const settingsGrid = container.querySelector('.settings-master-detail')
     expect(settingsGrid).not.toBeNull()
 
-    expect(appCss).toMatch(/\.settings-page__grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.05fr\)\s+minmax\(0,\s*1fr\)/s)
-    expect(appCss).not.toMatch(/@media\s*\(max-width:\s*1080px\)\s*\{[^}]*\.settings-page__grid\s*\{[^}]*grid-template-columns:\s*1fr/s)
+    expect(appCss).toMatch(/\.settings-master-detail\s*\{[^}]*grid-template-columns:\s*240px\s+minmax\(0,\s*1fr\)/s)
+    expect(appCss).not.toMatch(/@media\s*\(max-width:\s*1080px\)\s*\{[^}]*\.settings-master-detail\s*\{[^}]*grid-template-columns:\s*1fr/s)
   })
 
   it('adds a provider, marks it as default, and saves the provider catalog', async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: '打开设置' }))
+    await user.click(await screen.findByRole('button', { name: 'Open settings' }))
 
-    await user.click(screen.getByRole('button', { name: '新增供应商' }))
-    await user.clear(screen.getByLabelText('供应商名称'))
-    await user.type(screen.getByLabelText('供应商名称'), 'OpenRouter')
-    await user.clear(screen.getByLabelText('供应商类型'))
-    await user.type(screen.getByLabelText('供应商类型'), 'openrouter')
+    await user.click(screen.getByRole('button', { name: 'Add provider' }))
+    await user.selectOptions(screen.getByLabelText('Provider preset'), 'openrouter')
+    await user.clear(screen.getByLabelText('Provider name'))
+    await user.type(screen.getByLabelText('Provider name'), 'OpenRouter')
     const apiKeyInput = screen.getByLabelText('API Key')
     const baseUrlInput = screen.getByLabelText('Base URL')
 
@@ -800,16 +946,19 @@ describe('App', () => {
     await user.clear(baseUrlInput)
     await user.type(baseUrlInput, 'https://openrouter.ai/api/v1')
 
-    await user.click(screen.getByRole('button', { name: '新增模型' }))
-    await user.clear(screen.getByLabelText('模型 ID'))
-    await user.type(screen.getByLabelText('模型 ID'), 'openai/gpt-4o-mini')
-    await user.clear(screen.getByLabelText('显示名称'))
-    await user.type(screen.getByLabelText('显示名称'), 'GPT-4o mini')
+    await user.click(screen.getByRole('tab', { name: 'Models' }))
+    await user.click(screen.getByRole('button', { name: 'Add model' }))
+    await user.clear(screen.getByLabelText('Model ID'))
+    await user.type(screen.getByLabelText('Model ID'), 'openai/gpt-4o-mini')
+    await user.clear(screen.getByLabelText('Display name'))
+    await user.type(screen.getByLabelText('Display name'), 'GPT-4o mini')
 
-    await user.click(screen.getByRole('button', { name: '设为默认供应商' }))
-    await user.click(screen.getByRole('button', { name: '设为默认模型' }))
+    await user.click(screen.getByRole('tab', { name: 'Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Set as default' }))
+    await user.click(screen.getByRole('tab', { name: 'Models' }))
+    await user.click(screen.getByRole('button', { name: 'Set as default model' }))
 
-    await user.click(screen.getByRole('button', { name: '保存设置' }))
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
 
     const savedSettings = desktopApi.updateSettings.mock.calls.at(-1)?.[0]
     expect(savedSettings.providers).toEqual(
@@ -840,8 +989,9 @@ describe('App', () => {
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
+    await user.click(screen.getByRole('tab', { name: 'Models' }))
 
-    await user.click(screen.getByRole('button', { name: '检测模型' }))
+    await user.click(screen.getByRole('button', { name: 'Detect models' }))
 
     expect(desktopApi.listAvailableModels).toHaveBeenCalledWith({
       apiKey: '',
@@ -850,10 +1000,10 @@ describe('App', () => {
       systemPrompt: '',
     })
 
-    await user.click(await screen.findByRole('button', { name: '导入模型 gpt-4.1' }))
-    expect(screen.getByLabelText('模型 ID')).toHaveValue('gpt-4.1')
+    await user.click(await screen.findByRole('button', { name: 'Import model gpt-4.1' }))
+    expect(screen.getByLabelText('Model ID')).toHaveValue('gpt-4.1')
 
-    await user.click(screen.getByRole('button', { name: '保存设置' }))
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
 
     const savedSettings = desktopApi.updateSettings.mock.calls.at(-1)?.[0]
     expect(savedSettings.models).toEqual(
@@ -871,11 +1021,11 @@ describe('App', () => {
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
+    await user.click(screen.getByRole('tab', { name: 'Models' }))
 
     expect(screen.getAllByText('image').length).toBeGreaterThan(0)
     expect(screen.getAllByText('reasoning').length).toBeGreaterThan(0)
-
-    expect(container.querySelector('.settings-model-capability')).not.toBeNull()
+    expect(container.querySelector('.settings-model-item__cap')).not.toBeNull()
   })
 
   it('shows system prompt in settings and returns to chat', async () => {
@@ -883,10 +1033,11 @@ describe('App', () => {
     const { container } = render(<App />)
 
     await user.click(getSidebarSettingsButton(container))
+    await user.click(screen.getByRole('tab', { name: 'Preferences' }))
 
     expect(screen.getByLabelText('System Prompt')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '返回聊天' }))
+    await user.click(screen.getByRole('button', { name: 'Back to chat' }))
 
     expect(getConversationList(container)).not.toBeNull()
     expect(screen.getByRole('heading', { name: 'New thread' })).toBeInTheDocument()

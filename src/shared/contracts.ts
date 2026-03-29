@@ -9,6 +9,50 @@ export type ModelCapability =
   | 'tools'
   | 'embedding'
 
+export type ProviderPresetKey =
+  | 'openai'
+  | 'anthropic'
+  | 'openrouter'
+  | 'azure'
+  | 'ollama'
+  | 'lm-studio'
+  | 'custom'
+
+export interface ProviderPreset {
+  key: ProviderPresetKey
+  name: string
+  defaultBaseUrl: string
+  providerType: string
+  requiresApiKey: boolean
+  requiresBaseUrl: boolean
+}
+
+export const providerPresets: ProviderPreset[] = [
+  { key: 'openai', name: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', providerType: 'openai', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'anthropic', name: 'Anthropic', defaultBaseUrl: 'https://api.anthropic.com', providerType: 'anthropic', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'openrouter', name: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api/v1', providerType: 'openrouter', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'azure', name: 'Azure OpenAI', defaultBaseUrl: 'https://{resource}.openai.azure.com/openai/deployments/{deployment}', providerType: 'azure', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'ollama', name: 'Ollama', defaultBaseUrl: 'http://localhost:11434/v1', providerType: 'ollama', requiresApiKey: false, requiresBaseUrl: true },
+  { key: 'lm-studio', name: 'LM Studio', defaultBaseUrl: 'http://localhost:1234/v1', providerType: 'lm-studio', requiresApiKey: false, requiresBaseUrl: true },
+  { key: 'custom', name: 'Custom', defaultBaseUrl: '', providerType: 'custom', requiresApiKey: true, requiresBaseUrl: true },
+]
+
+export function inferProviderPreset(baseUrl: string): ProviderPresetKey {
+  const normalized = baseUrl.toLowerCase().replace(/\/+$/, '')
+  if (!normalized) return 'custom'
+  if (normalized.includes('openrouter.ai')) return 'openrouter'
+  if (normalized.includes('anthropic.com')) return 'anthropic'
+  if (normalized.includes('openai.com')) return 'openai'
+  if (normalized.includes('azure.com')) return 'azure'
+  if (normalized.includes('localhost:11434')) return 'ollama'
+  if (normalized.includes('localhost:1234')) return 'lm-studio'
+  return 'custom'
+}
+
+export function getPresetByKey(key: ProviderPresetKey): ProviderPreset | undefined {
+  return providerPresets.find((p) => p.key === key)
+}
+
 export interface ProviderSettings {
   id: string
   name: string
