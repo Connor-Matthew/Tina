@@ -14,6 +14,7 @@ export interface ChatPersistence {
   createMessage: (conversationId: string, message: ChatMessage) => Promise<void>
   updateMessage: (conversationId: string, messageId: string, content: string) => Promise<void>
   deleteMessagesFrom: (conversationId: string, messageId: string) => Promise<void>
+  generateTitle: (conversationId: string, messages: ChatMessage[]) => Promise<string>
 }
 
 interface ChatState {
@@ -28,6 +29,7 @@ interface ChatState {
   deleteConversation: (conversationId: string) => Promise<void>
   deleteMessagesFrom: (conversationId: string, messageId: string) => Promise<void>
   clearError: () => void
+  stopStreaming: () => void
   editMessageAndResend: (
     input: { conversationId: string; messageId: string; content: string },
     streamFromModel: (
@@ -225,6 +227,9 @@ export function createChatStore(
     },
     clearError: () => {
       set({ error: null })
+    },
+    stopStreaming: () => {
+      set({ isSending: false })
     },
     editMessageAndResend: async (input, streamFromModel) => {
       const trimmed = input.content.trim()
@@ -487,6 +492,24 @@ export function createChatStore(
 
         assistantMessage.content = accumulated
         await persistence.createMessage(targetConversationId, assistantMessage)
+
+        // 自动生成标题（仅当标题为默认值时）
+        const conversation = get().conversations.find((c) => c.id === targetConversationId)
+        if (conversation?.title === 'New thread') {
+          const firstUserMessage = conversation.messages.find((m) => m.role === 'user')
+          if (firstUserMessage?.content) {
+            persistence.generateTitle(targetConversationId, conversation.messages).then(async (title) => {
+              if (title) {
+                await persistence.renameConversation(targetConversationId, title)
+                set((state) => ({
+                  conversations: state.conversations.map((item) =>
+                    item.id === targetConversationId ? { ...item, title } : item,
+                  ),
+                }))
+              }
+            }).catch(() => {})
+          }
+        }
 
         set({ isSending: false })
       } catch (error) {

@@ -17,6 +17,7 @@ interface ComposerProps {
   modelOptions: ComposerModelOption[]
   onModelChange: (modelId: string) => Promise<void>
   onSend: (submission: ChatComposerSubmission) => Promise<void>
+  onStop: () => void
   selectedModelId: string | null
   selectedModelLabel: string
 }
@@ -58,6 +59,7 @@ export function Composer({
   modelOptions,
   onModelChange,
   onSend,
+  onStop,
   selectedModelId,
   selectedModelLabel,
 }: ComposerProps) {
@@ -130,7 +132,6 @@ export function Composer({
     setAttachments((current) => [...current, ...newAttachments])
   }
 
-  const canSend = !disabled && (value.trim().length > 0 || attachments.length > 0)
 
   return (
     <form
@@ -354,11 +355,11 @@ export function Composer({
           </div>
 
           <button
-            aria-label="Send message"
+            aria-label={disabled ? 'Stop generating' : 'Send message'}
             className="composer__send"
-            disabled={!canSend}
+            onClick={disabled ? (e) => { e.preventDefault(); onStop() } : undefined}
             style={{
-              backgroundColor: 'rgb(205, 108, 70)',
+              backgroundColor: disabled ? 'rgb(220, 60, 60)' : 'rgb(205, 108, 70)',
               borderRadius: '12px',
               height: '36px',
               width: '36px',
@@ -367,7 +368,7 @@ export function Composer({
             }}
             type="submit"
           >
-            ↑
+            {disabled ? '■' : '↑'}
           </button>
         </div>
       </div>

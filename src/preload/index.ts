@@ -58,6 +58,12 @@ const desktopApi: DesktopApi = {
 
     return ipcRenderer.invoke('chat:stream', messages) as Promise<void>
   },
+  abortStreamChat() {
+    ipcRenderer.invoke('chat:abort')
+  },
+  generateTitle(conversationId, messages) {
+    return ipcRenderer.invoke('chat:generate-title', conversationId, messages) as Promise<string>
+  },
 }
 
 contextBridge.exposeInMainWorld('desktop', desktopApi)

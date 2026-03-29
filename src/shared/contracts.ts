@@ -151,6 +151,8 @@ export interface DesktopApi {
     onError: (error: string) => void,
     onEnd: () => void,
   ): Promise<void>
+  abortStreamChat(): void
+  generateTitle(conversationId: string, messages: ChatMessage[]): Promise<string>
 }
 
 declare global {

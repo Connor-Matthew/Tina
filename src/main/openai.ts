@@ -121,6 +121,7 @@ export async function* streamChatRequest(
   settings: ModelRequestSettings,
   messages: ChatMessage[],
   fetchImpl: FetchLike = fetch,
+  signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
   if (!settings.apiKey.trim()) {
     throw new Error('API key is required before sending a message.')
@@ -137,6 +138,7 @@ export async function* streamChatRequest(
         Authorization: `Bearer ${settings.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal,
     },
   )
 
