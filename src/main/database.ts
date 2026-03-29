@@ -63,6 +63,11 @@ interface AppPreferencesRecord {
   default_model_id: string | null
   default_provider_id: string | null
   system_prompt: string
+  temperature: number | null
+  top_p: number | null
+  presence_penalty: number | null
+  frequency_penalty: number | null
+  max_tokens: number | null
 }
 
 export interface AppDatabaseOptions {
@@ -166,6 +171,11 @@ export class AppDatabase {
         default_provider_id TEXT,
         default_model_id TEXT,
         system_prompt TEXT NOT NULL DEFAULT '',
+        temperature REAL DEFAULT 1.0,
+        top_p REAL DEFAULT 1.0,
+        presence_penalty REAL DEFAULT 0,
+        frequency_penalty REAL DEFAULT 0,
+        max_tokens INTEGER,
         FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
         FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
       );
@@ -201,6 +211,7 @@ export class AppDatabase {
     `)
 
     this.migrateLegacySettingsTable()
+    this.migrateAppPreferencesColumns()
     this.database.exec('PRAGMA user_version = 2')
   }
 
@@ -224,6 +235,22 @@ export class AppDatabase {
     return row.count > 0
   }
 
+  private migrateAppPreferencesColumns(): void {
+    const columns = ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'max_tokens']
+    const defaults: Record<string, string> = {
+      temperature: '1.0',
+      top_p: '1.0',
+      presence_penalty: '0',
+      frequency_penalty: '0',
+    }
+    for (const column of columns) {
+      try {
+        this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column} ${column === 'max_tokens' ? 'INTEGER' : 'REAL'} DEFAULT ${defaults[column] ?? 'NULL'}`)
+      } catch {
+        // column already exists
+      }
+    }
+  }
   private migrateLegacySettingsTable(): void {
     if (this.hasProviderCatalog() || !this.tableExists('settings')) {
       return
@@ -357,7 +384,7 @@ export class AppDatabase {
 
     const preferences = this.database
       .prepare(`
-        SELECT default_provider_id, default_model_id, system_prompt
+        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens
         FROM app_preferences
         WHERE id = 1
       `)
@@ -397,6 +424,11 @@ export class AppDatabase {
         defaultProviderId: preferences?.default_provider_id ?? null,
         defaultModelId: preferences?.default_model_id ?? null,
         systemPrompt: preferences?.system_prompt ?? '',
+        temperature: preferences?.temperature ?? 1.0,
+        topP: preferences?.top_p ?? 1.0,
+        presencePenalty: preferences?.presence_penalty ?? 0,
+        frequencyPenalty: preferences?.frequency_penalty ?? 0,
+        maxTokens: preferences?.max_tokens ?? undefined,
       },
     }
   }
@@ -497,10 +529,10 @@ export class AppDatabase {
 
       this.database
         .prepare(`
-          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
-          VALUES (1, ?, ?, ?)
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
-        .run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt)
+        .run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt, settings.preferences.temperature ?? 1.0, settings.preferences.topP ?? 1.0, settings.preferences.presencePenalty ?? 0, settings.preferences.frequencyPenalty ?? 0, settings.preferences.maxTokens ?? null)
     })
   }
 

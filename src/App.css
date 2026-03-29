@@ -410,6 +410,7 @@ body {
   margin-right: calc(
     var(--conversation-scrollbar-inline-end-gap) - var(--workspace-inline-padding)
   );
+  padding: 0 var(--workspace-inline-padding);
 }
 
 .conversation__welcome {
@@ -660,9 +661,49 @@ body {
   font-size: 15px;
 }
 
+.message__bubble--thinking {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.message__thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message__thinking-dots span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #bbb;
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+
+.message__thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.message__thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
 .message--user .message__bubble {
-  background: transparent;
-  border-color: transparent;
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
   color: inherit;
 }
 
@@ -798,14 +839,17 @@ body {
 }
 
 .message--assistant .message__bubble {
+  background: transparent;
+  border-color: transparent;
   white-space: normal;
 }
 
 .message--user {
   align-items: flex-end;
+  width: calc(100% - 32px);
 }
 
-.message--assistant .message__attachment,
+.message--user .message__bubble,
 .message--assistant .message__bubble {
   max-width: 100%;
 }
@@ -823,8 +867,8 @@ body {
   gap: 8px;
   min-width: 0;
   box-sizing: border-box;
-  width: calc(100% - var(--conversation-text-inline-end-inset));
-  margin-right: var(--conversation-text-inline-end-inset);
+  width: 100%;
+  align-self: flex-end;
   padding: 10px 14px 8px;
   border: 1px solid #e0e0e0;
   border-radius: 16px;
@@ -2097,7 +2141,119 @@ body {
   color: #9b3c34;
 }
 
-.settings-section__inline-row {
+.settings-chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+}
+
+.settings-chat-panel .settings-section__form-card {
+  gap: 20px;
+}
+
+.settings-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-slider-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-slider-group__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #171717;
+}
+
+.settings-slider-group__value {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #3f3c36;
+  min-width: 40px;
+  text-align: right;
+}
+
+.settings-slider {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #e8e2d8;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  border: none;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #221f1a;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  transition: transform 120ms ease;
+}
+
+.settings-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.settings-slider::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+.settings-slider-group__hint {
+  font-size: 13px;
+  color: #6b6b63;
+  line-height: 1.5;
+}
+
+.settings-chat-param-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-chat-param-label > span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #171717;
+}
+
+.settings-chat-number-input {
+  width: 120px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid #d9d6cf;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  font: inherit;
+  color: #171717;
+  font-size: 14px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.settings-chat-number-input:focus {
+  outline: none;
+  border-color: #bcae94;
+  box-shadow: 0 0 0 4px rgba(197, 184, 160, 0.18);
+}
+
+.settings-chat-number-input::-webkit-inner-spin-button,
+.settings-chat-number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
   display: flex;
   align-items: center;
   gap: 12px;

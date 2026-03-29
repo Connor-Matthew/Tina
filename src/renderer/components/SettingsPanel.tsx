@@ -2,7 +2,7 @@ import type { AppSettings, ModelCapability, ProviderModelSettings, ProviderPrese
 import { getPresetByKey, providerPresets } from '../../shared/contracts'
 import { useState } from 'react'
 
-type SettingsTab = 'connection' | 'models' | 'preferences'
+type SettingsTab = 'connection' | 'models' | 'preferences' | 'chat'
 
 interface SettingsPanelProps {
   activeModelId: string | null
@@ -39,6 +39,7 @@ interface SettingsPanelProps {
   ) => void
   onUpdateProviderPreset: (presetKey: ProviderPresetKey) => void
   onUpdateSystemPrompt: (value: string) => void
+  onUpdateChatParam: (field: 'temperature' | 'topP' | 'presencePenalty' | 'frequencyPenalty' | 'maxTokens', value: string) => void
 }
 
 const editableCapabilities: ModelCapability[] = ['text', 'image', 'reasoning', 'audio', 'tools']
@@ -86,6 +87,7 @@ export function SettingsPanel({
   onUpdateProviderField,
   onUpdateProviderPreset,
   onUpdateSystemPrompt,
+  onUpdateChatParam,
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('connection')
   const [showApiKey, setShowApiKey] = useState(false)
@@ -106,6 +108,7 @@ export function SettingsPanel({
     { key: 'connection', label: 'Connection' },
     { key: 'models', label: 'Models' },
     { key: 'preferences', label: 'Preferences' },
+    { key: 'chat', label: 'Chat' },
   ]
 
   return (
@@ -527,6 +530,110 @@ export function SettingsPanel({
                           placeholder="Enter a system prompt that the model should follow by default"
                         />
                       </label>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'chat' && (
+                  <div className="settings-detail__panel" role="tabpanel">
+                    <div className="settings-chat-panel">
+                      <section className="settings-section__form-card">
+                        <div className="settings-section__card-head">
+                          <div>
+                            <h3>Temperature &amp; Output</h3>
+                            <p>Control randomness and length of model responses.</p>
+                          </div>
+                        </div>
+
+                        <div className="settings-slider-group">
+                          <div className="settings-slider-group__header">
+                            <span className="settings-slider-group__label">Temperature</span>
+                            <span className="settings-slider-group__value">{settings.preferences.temperature ?? 1.0}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="2"
+                            step="0.1"
+                            value={settings.preferences.temperature ?? 1.0}
+                            onChange={(e) => onUpdateChatParam('temperature', e.target.value)}
+                            className="settings-slider"
+                          />
+                          <div className="settings-slider-group__hint">Higher values make output more random; lower values make it more deterministic.</div>
+                        </div>
+
+                        <label className="settings-chat-param-label">
+                          <span>Max Tokens</span>
+                          <input
+                            type="number"
+                            aria-label="Max Tokens"
+                            value={settings.preferences.maxTokens ?? ''}
+                            onChange={(e) => onUpdateChatParam('maxTokens', e.target.value)}
+                            placeholder="No limit"
+                            className="settings-chat-number-input"
+                          />
+                        </label>
+                      </section>
+
+                      <section className="settings-section__form-card">
+                        <div className="settings-section__card-head">
+                          <div>
+                            <h3>Penalty Settings</h3>
+                            <p>Advanced parameters to penalize repetition and guide model behavior.</p>
+                          </div>
+                        </div>
+
+                        <div className="settings-slider-group">
+                          <div className="settings-slider-group__header">
+                            <span className="settings-slider-group__label">Top P</span>
+                            <span className="settings-slider-group__value">{settings.preferences.topP ?? 1.0}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            value={settings.preferences.topP ?? 1.0}
+                            onChange={(e) => onUpdateChatParam('topP', e.target.value)}
+                            className="settings-slider"
+                          />
+                          <div className="settings-slider-group__hint">Controls diversity via nucleus sampling. Use lower values to limit token selection.</div>
+                        </div>
+
+                        <div className="settings-slider-group">
+                          <div className="settings-slider-group__header">
+                            <span className="settings-slider-group__label">Presence Penalty</span>
+                            <span className="settings-slider-group__value">{settings.preferences.presencePenalty ?? 0}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="-2"
+                            max="2"
+                            step="0.1"
+                            value={settings.preferences.presencePenalty ?? 0}
+                            onChange={(e) => onUpdateChatParam('presencePenalty', e.target.value)}
+                            className="settings-slider"
+                          />
+                          <div className="settings-slider-group__hint">Increases penalty for tokens that have already appeared, encouraging the model to talk about new topics.</div>
+                        </div>
+
+                        <div className="settings-slider-group">
+                          <div className="settings-slider-group__header">
+                            <span className="settings-slider-group__label">Frequency Penalty</span>
+                            <span className="settings-slider-group__value">{settings.preferences.frequencyPenalty ?? 0}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="-2"
+                            max="2"
+                            step="0.1"
+                            value={settings.preferences.frequencyPenalty ?? 0}
+                            onChange={(e) => onUpdateChatParam('frequencyPenalty', e.target.value)}
+                            className="settings-slider"
+                          />
+                          <div className="settings-slider-group__hint">Decreases penalty for tokens proportional to their frequency in the response, reducing repetition.</div>
+                        </div>
+                      </section>
                     </div>
                   </div>
                 )}

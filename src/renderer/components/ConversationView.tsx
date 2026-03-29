@@ -71,17 +71,20 @@ export function ConversationView({
       </header>
 
       <div className="conversation__messages" style={{ alignItems: 'stretch' }}>
-        {conversation.messages.map((message) => (
-          <article
-            key={message.id}
-            className={`message message--${message.role}`}
-          >
-            <div className="message__label">
-              {message.role === 'user' ? 'You' : 'Tina'}
-            </div>
-            <div className="message__body">
-              {message.attachments?.length ? (
-                <div className="message__attachments">
+        {conversation.messages.map((message, index) => {
+          const isLastAssistantMessage =
+            isSending && message.role === 'assistant' && index === conversation.messages.length - 1
+          return (
+            <article
+              key={message.id}
+              className={`message message--${message.role}`}
+            >
+              <div className="message__label">
+                {message.role === 'user' ? 'You' : 'Tina'}
+              </div>
+              <div className="message__body">
+                {message.attachments?.length ? (
+                  <div className="message__attachments">
                   {message.attachments.map((attachment) => (
                     <div key={attachment.id} className="message__attachment">
                       <span className="message__attachment-kind">
@@ -121,6 +124,14 @@ export function ConversationView({
                     </button>
                   </div>
                 </form>
+              ) : isSending && isLastAssistantMessage ? (
+                <div className="message__bubble message__bubble--thinking">
+                  <span className="message__thinking-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </span>
+                </div>
               ) : message.content ? (
                 <div className="message__bubble">
                   {message.role === 'assistant' ? (
@@ -192,9 +203,8 @@ export function ConversationView({
               </div>
             </div>
           </article>
-        ))}
+        )})}
 
-        {isSending ? <p className="conversation__status">Tina is thinking…</p> : null}
         {error ? <p className="conversation__error">{error}</p> : null}
         <div ref={messagesEndRef} />
       </div>

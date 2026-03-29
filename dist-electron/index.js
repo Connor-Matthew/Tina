@@ -94,6 +94,11 @@ var AppDatabase = class {
         default_provider_id TEXT,
         default_model_id TEXT,
         system_prompt TEXT NOT NULL DEFAULT '',
+        temperature REAL DEFAULT 1.0,
+        top_p REAL DEFAULT 1.0,
+        presence_penalty REAL DEFAULT 0,
+        frequency_penalty REAL DEFAULT 0,
+        max_tokens INTEGER,
         FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
         FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
       );
@@ -128,6 +133,7 @@ var AppDatabase = class {
       ON conversations(updated_at DESC, created_at DESC, id);
     `);
 		this.migrateLegacySettingsTable();
+		this.migrateAppPreferencesColumns();
 		this.database.exec("PRAGMA user_version = 2");
 	}
 	close() {
@@ -139,6 +145,24 @@ var AppDatabase = class {
 	}
 	hasProviderCatalog() {
 		return this.database.prepare("SELECT COUNT(*) as count FROM providers").get().count > 0;
+	}
+	migrateAppPreferencesColumns() {
+		const columns = [
+			"temperature",
+			"top_p",
+			"presence_penalty",
+			"frequency_penalty",
+			"max_tokens"
+		];
+		const defaults = {
+			temperature: "1.0",
+			top_p: "1.0",
+			presence_penalty: "0",
+			frequency_penalty: "0"
+		};
+		for (const column of columns) try {
+			this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column} ${column === "max_tokens" ? "INTEGER" : "REAL"} DEFAULT ${defaults[column] ?? "NULL"}`);
+		} catch {}
 	}
 	migrateLegacySettingsTable() {
 		if (this.hasProviderCatalog() || !this.tableExists("settings")) return;
@@ -220,7 +244,7 @@ var AppDatabase = class {
         ORDER BY provider_model_id ASC, rowid ASC
       `).all();
 		const preferences = this.database.prepare(`
-        SELECT default_provider_id, default_model_id, system_prompt
+        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens
         FROM app_preferences
         WHERE id = 1
       `).get();
@@ -256,7 +280,12 @@ var AppDatabase = class {
 			preferences: {
 				defaultProviderId: preferences?.default_provider_id ?? null,
 				defaultModelId: preferences?.default_model_id ?? null,
-				systemPrompt: preferences?.system_prompt ?? ""
+				systemPrompt: preferences?.system_prompt ?? "",
+				temperature: preferences?.temperature ?? 1,
+				topP: preferences?.top_p ?? 1,
+				presencePenalty: preferences?.presence_penalty ?? 0,
+				frequencyPenalty: preferences?.frequency_penalty ?? 0,
+				maxTokens: preferences?.max_tokens ?? void 0
 			}
 		};
 	}
@@ -311,9 +340,9 @@ var AppDatabase = class {
 				for (const capability of model.capabilities) insertCapability.run(model.id, capability);
 			}
 			this.database.prepare(`
-          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt)
-          VALUES (1, ?, ?, ?)
-        `).run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt);
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt, settings.preferences.temperature ?? 1, settings.preferences.topP ?? 1, settings.preferences.presencePenalty ?? 0, settings.preferences.frequencyPenalty ?? 0, settings.preferences.maxTokens ?? null);
 		});
 	}
 	listConversations() {
@@ -427,9 +456,16 @@ function buildChatRequest(settings, messages) {
 			content: formatMessageContent(message)
 		});
 	}
+	const extras = {};
+	if (settings.temperature !== void 0) extras.temperature = settings.temperature;
+	if (settings.topP !== void 0) extras.top_p = settings.topP;
+	if (settings.presencePenalty !== void 0) extras.presence_penalty = settings.presencePenalty;
+	if (settings.frequencyPenalty !== void 0) extras.frequency_penalty = settings.frequencyPenalty;
+	if (settings.maxTokens !== void 0) extras.max_tokens = settings.maxTokens;
 	return {
 		model: settings.model,
-		messages: payloadMessages
+		messages: payloadMessages,
+		...extras
 	};
 }
 function formatMessageContent(message) {
@@ -536,7 +572,11 @@ var defaultSettings = {
 	preferences: {
 		defaultProviderId,
 		defaultModelId,
-		systemPrompt: ""
+		systemPrompt: "",
+		temperature: 1,
+		topP: 1,
+		presencePenalty: 0,
+		frequencyPenalty: 0
 	}
 };
 var require = createRequire(import.meta.url);
@@ -599,7 +639,11 @@ function createSettingsFromLegacy(partial) {
 		preferences: {
 			defaultProviderId: providerId,
 			defaultModelId: modelId,
-			systemPrompt: legacy.systemPrompt
+			systemPrompt: legacy.systemPrompt,
+			temperature: 1,
+			topP: 1,
+			presencePenalty: 0,
+			frequencyPenalty: 0
 		}
 	};
 }
@@ -646,7 +690,12 @@ function normalizeAppSettings(settings) {
 		preferences: {
 			defaultProviderId,
 			defaultModelId: providerModels.some((model) => model.id === settings.preferences.defaultModelId) ? settings.preferences.defaultModelId : providerModels[0]?.id ?? null,
-			systemPrompt: settings.preferences.systemPrompt ?? ""
+			systemPrompt: settings.preferences.systemPrompt ?? "",
+			temperature: settings.preferences.temperature ?? 1,
+			topP: settings.preferences.topP ?? 1,
+			presencePenalty: settings.preferences.presencePenalty ?? 0,
+			frequencyPenalty: settings.preferences.frequencyPenalty ?? 0,
+			maxTokens: settings.preferences.maxTokens
 		}
 	};
 }
@@ -732,7 +781,12 @@ function resolveCurrentRequestSettings(settings) {
 		apiKey: provider.apiKey,
 		baseUrl: provider.baseUrl,
 		model: model.modelKey,
-		systemPrompt: settings.preferences.systemPrompt
+		systemPrompt: settings.preferences.systemPrompt,
+		temperature: settings.preferences.temperature,
+		topP: settings.preferences.topP,
+		presencePenalty: settings.preferences.presencePenalty,
+		frequencyPenalty: settings.preferences.frequencyPenalty,
+		maxTokens: settings.preferences.maxTokens
 	};
 }
 function registerIpcHandlers() {

@@ -43,6 +43,10 @@ export const defaultSettings: AppSettings = {
     defaultProviderId,
     defaultModelId,
     systemPrompt: '',
+    temperature: 1.0,
+    topP: 1.0,
+    presencePenalty: 0,
+    frequencyPenalty: 0,
   },
 }
 
@@ -125,6 +129,10 @@ export function createSettingsFromLegacy(
       defaultProviderId: providerId,
       defaultModelId: modelId,
       systemPrompt: legacy.systemPrompt,
+      temperature: 1.0,
+      topP: 1.0,
+      presencePenalty: 0,
+      frequencyPenalty: 0,
     },
   }
 }
@@ -186,6 +194,11 @@ export function normalizeAppSettings(settings: AppSettings): AppSettings {
       defaultProviderId,
       defaultModelId,
       systemPrompt: settings.preferences.systemPrompt ?? '',
+      temperature: settings.preferences.temperature ?? 1.0,
+      topP: settings.preferences.topP ?? 1.0,
+      presencePenalty: settings.preferences.presencePenalty ?? 0,
+      frequencyPenalty: settings.preferences.frequencyPenalty ?? 0,
+      maxTokens: settings.preferences.maxTokens,
     },
   }
 }
