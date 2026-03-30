@@ -5,7 +5,7 @@
   "description": "Tina desktop chat app",
   "author": "Tina",
   "type": "module",
-  "main": "dist-electron/index.js",
+  "main": "dist-electron/index.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

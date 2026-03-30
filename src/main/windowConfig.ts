@@ -11,7 +11,7 @@ export function createWindowOptions(preloadPath: string): BrowserWindowConstruct
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#ffffff',
     webPreferences: {
-      preload: join(preloadPath, 'index.mjs'),
+      preload: join(preloadPath, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
