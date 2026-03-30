@@ -13,7 +13,6 @@ import type {
   AppSettings,
   ChatComposerSubmission,
   ChatMessage,
-  ModelCapability,
   ModelRequestSettings,
   ProviderModelSettings,
   ProviderSettings,
@@ -173,23 +172,6 @@ function createProviderDraft(index: number): ProviderSettings {
   }
 }
 
-function createModelDraft(providerId: string, index: number): ProviderModelSettings {
-  const modelKey = `new-model-${index}`
-
-  return {
-    id: createModelId(),
-    providerId,
-    modelKey,
-    displayName: `New Model ${index}`,
-    description: '',
-    isEnabled: true,
-    sortOrder: index - 1,
-    supportsStreaming: true,
-    capabilities: ['text'],
-    rawMetadata: {},
-  }
-}
-
 function App() {
   const [chatStore] = useState(() => createChatStore(desktop))
   const [chatState, setChatState] = useState(chatStore.getState())
@@ -209,6 +191,7 @@ function App() {
   const [view, setView] = useState<AppView>('chat')
   const [searchValue, setSearchValue] = useState('')
   const [settingsTab, setSettingsTab] = useState<SettingsNavTab>('providers')
+  const [selectedDetectedModels, setSelectedDetectedModels] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const unsubscribe = chatStore.subscribe(setChatState)
@@ -426,19 +409,6 @@ function App() {
     applySettings(nextSettings, activeProvider.id, selectedModelId)
   }
 
-  function updateActiveModel(updater: (model: ProviderModelSettings) => ProviderModelSettings) {
-    if (!activeModel) {
-      return
-    }
-
-    const nextSettings: AppSettings = {
-      ...settings,
-      models: settings.models.map((model) => (model.id === activeModel.id ? updater(model) : model)),
-    }
-
-    applySettings(nextSettings, selectedProviderId, activeModel.id)
-  }
-
   function handleAddProvider() {
     const nextProvider = createProviderDraft(settings.providers.length + 1)
     const nextSettings: AppSettings = {
@@ -447,20 +417,6 @@ function App() {
     }
 
     applySettings(nextSettings, nextProvider.id, null)
-  }
-
-  function handleAddModel() {
-    if (!activeProvider) {
-      return
-    }
-
-    const nextModel = createModelDraft(activeProvider.id, providerModels.length + 1)
-    const nextSettings: AppSettings = {
-      ...settings,
-      models: [...settings.models, nextModel],
-    }
-
-    applySettings(nextSettings, activeProvider.id, nextModel.id)
   }
 
   function handleImportDetectedModel(modelKey: string) {
@@ -493,6 +449,49 @@ function App() {
     }
 
     applySettings(nextSettings, activeProvider.id, nextModel.id)
+  }
+
+  function handleToggleDetectedModel(modelKey: string) {
+    setSelectedDetectedModels((current) => {
+      const next = new Set(current)
+      if (next.has(modelKey)) {
+        next.delete(modelKey)
+      } else {
+        next.add(modelKey)
+      }
+      return next
+    })
+  }
+
+  function handleToggleAllDetectedModels(selected: boolean) {
+    if (!activeProvider) {
+      return
+    }
+    const modelsForProvider = detectedModelsByProvider[activeProvider.id] ?? []
+    setSelectedDetectedModels(selected ? new Set(modelsForProvider) : new Set())
+  }
+
+  function handleImportSelectedModels() {
+    if (!activeProvider) {
+      return
+    }
+    for (const modelKey of selectedDetectedModels) {
+      handleImportDetectedModel(modelKey)
+    }
+    setSelectedDetectedModels(new Set())
+  }
+
+  function handleDeleteModel(modelId: string) {
+    const nextSettings: AppSettings = {
+      ...settings,
+      models: settings.models.filter((model) => model.id !== modelId),
+    }
+    if (selectedModelId === modelId) {
+      const remainingModels = providerModels.filter((model) => model.id !== modelId)
+      applySettings(nextSettings, selectedProviderId, remainingModels[0]?.id ?? null)
+    } else {
+      applySettings(nextSettings, selectedProviderId, selectedModelId)
+    }
   }
 
   return (
@@ -613,9 +612,9 @@ function App() {
           ) : (
             <SettingsPanel
               activeSettingsTab={settingsTab}
-              activeModelId={activeModel?.id ?? null}
               activeProviderId={activeProvider?.id ?? null}
               detectedModels={detectedModels}
+              selectedDetectedModels={selectedDetectedModels}
               hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
               isTestingConnection={isTestingConnection}
@@ -623,7 +622,6 @@ function App() {
               modelDetectionError={modelDetectionError}
               providerModels={providerModels}
               settings={settings}
-              onAddModel={handleAddModel}
               onAddProvider={handleAddProvider}
               onTestConnection={handleTestConnection}
               onDeleteProvider={(providerId) => {
@@ -640,28 +638,14 @@ function App() {
                   applySettings(nextSettings, null, null)
                 }
               }}
+              onDeleteModel={handleDeleteModel}
               onDetectModels={handleDetectModels}
-              onImportDetectedModel={handleImportDetectedModel}
+              onImportSelectedModels={handleImportSelectedModels}
               onSave={handleSaveSettings}
-              onSelectModel={(modelId) => setSelectedModelId(modelId)}
               onSelectProvider={(providerId) => {
                 const selection = resolveSelection(settings, providerId, null)
                 setSelectedProviderId(selection.providerId)
                 setSelectedModelId(selection.modelId)
-              }}
-              onSetDefaultModel={() => {
-                if (!activeProvider || !activeModel) {
-                  return
-                }
-
-                applySettings({
-                  ...settings,
-                  preferences: {
-                    ...settings.preferences,
-                    defaultProviderId: activeProvider.id,
-                    defaultModelId: activeModel.id,
-                  },
-                })
               }}
               onSetDefaultProvider={() => {
                 if (!activeProvider) {
@@ -677,25 +661,8 @@ function App() {
                   },
                 })
               }}
-              onToggleCapability={(capability: ModelCapability) => {
-                updateActiveModel((model) => ({
-                  ...model,
-                  capabilities: model.capabilities.includes(capability)
-                    ? model.capabilities.filter((item) => item !== capability)
-                    : [...model.capabilities, capability],
-                }))
-              }}
-              onUpdateModelField={(field, value) => {
-                updateActiveModel((model) => ({
-                  ...model,
-                  [field]:
-                    field === 'contextWindow' || field === 'maxOutputTokens'
-                      ? value.trim()
-                        ? Number(value)
-                        : undefined
-                      : value,
-                }))
-              }}
+              onToggleDetectedModel={handleToggleDetectedModel}
+              onToggleAllDetectedModels={handleToggleAllDetectedModels}
               onUpdateProviderField={(field, value) => {
                 updateActiveProvider((provider) => ({
                   ...provider,
@@ -711,6 +678,7 @@ function App() {
                     ...current,
                     [activeProvider.id]: null,
                   }))
+                  setSelectedDetectedModels(new Set())
                 }
               }}
               onUpdateProviderPreset={(presetKey) => {

@@ -227,6 +227,15 @@ export function Composer({
             el.style.height = `${Math.min(scrollHeight, maxHeight)}px`
             el.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden'
           }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              const form = event.currentTarget.form
+              if (form) {
+                form.requestSubmit()
+              }
+            }
+          }}
           placeholder="Message Tina..."
           style={{
             width: '100%',

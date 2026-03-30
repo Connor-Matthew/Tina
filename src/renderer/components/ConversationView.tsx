@@ -81,6 +81,21 @@ export function ConversationView({
             >
               <div className="message__label">
                 {message.role === 'user' ? 'You' : 'Tina'}
+                {isSending && isLastAssistantMessage && (
+                  <span className="message__streaming-indicator">
+                    <span className="message__cube-dots message__cube-dots--tiny">
+                      <span className="message__cube-dot message__cube-dot--1"></span>
+                      <span className="message__cube-dot message__cube-dot--2"></span>
+                      <span className="message__cube-dot message__cube-dot--3"></span>
+                      <span className="message__cube-dot message__cube-dot--4"></span>
+                      <span className="message__cube-dot message__cube-dot--5"></span>
+                      <span className="message__cube-dot message__cube-dot--6"></span>
+                      <span className="message__cube-dot message__cube-dot--7"></span>
+                      <span className="message__cube-dot message__cube-dot--8"></span>
+                      <span className="message__cube-dot message__cube-dot--9"></span>
+                    </span>
+                  </span>
+                )}
               </div>
               <div className="message__body">
                 {message.attachments?.length ? (
@@ -125,13 +140,7 @@ export function ConversationView({
                   </div>
                 </form>
               ) : isSending && isLastAssistantMessage && !message.content ? (
-                <div className="message__bubble message__bubble--thinking">
-                  <span className="message__thinking-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </span>
-                </div>
+                <div className="message__bubble message__bubble--thinking" />
               ) : isSending && isLastAssistantMessage && message.content ? (
                 <div className="message__bubble">
                   {message.role === 'assistant' ? (
