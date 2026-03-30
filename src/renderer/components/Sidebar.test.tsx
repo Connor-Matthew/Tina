@@ -16,14 +16,15 @@ function createSidebarProps() {
     onDeleteConversation: vi.fn(),
     onExportConversation: vi.fn(),
     onOpenSettings: vi.fn(),
+    onSelectSettingsTab: vi.fn(),
   }
 }
 
 describe('Sidebar', () => {
-  it('renders the Chats title block in the sidebar', () => {
+  it('renders the Tina title block in the sidebar', () => {
     render(<Sidebar {...createSidebarProps()} />)
 
-    expect(screen.getByRole('heading', { name: 'Chats' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tina' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Search')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
@@ -107,6 +108,7 @@ describe('Sidebar', () => {
         onDeleteConversation={vi.fn()}
         onExportConversation={vi.fn()}
         onOpenSettings={vi.fn()}
+        onSelectSettingsTab={vi.fn()}
       />,
     )
 

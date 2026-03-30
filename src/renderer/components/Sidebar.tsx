@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Conversation } from '../../shared/contracts'
 
+export type SettingsNavTab = 'general' | 'providers' | 'models' | 'chat-params' | 'about'
+
 interface SidebarProps {
   conversations: Conversation[]
   activeConversationId: string | null
   searchValue: string
   mode?: 'conversations' | 'settings'
+  settingsTab?: SettingsNavTab
   onSearchChange: (value: string) => void
   onCreateConversation: () => void
   onSelectConversation: (conversationId: string) => void
@@ -14,6 +17,7 @@ interface SidebarProps {
   onDeleteConversation: (conversationId: string) => void
   onExportConversation: (conversationId: string) => void
   onOpenSettings: () => void
+  onSelectSettingsTab: (tab: SettingsNavTab) => void
   onBackToChat?: () => void
 }
 
@@ -22,6 +26,7 @@ export function Sidebar({
   activeConversationId,
   searchValue,
   mode = 'conversations',
+  settingsTab = 'providers',
   onSearchChange,
   onCreateConversation,
   onSelectConversation,
@@ -29,6 +34,7 @@ export function Sidebar({
   onDeleteConversation,
   onExportConversation,
   onOpenSettings,
+  onSelectSettingsTab,
   onBackToChat,
 }: SidebarProps) {
   const [menuConversationId, setMenuConversationId] = useState<string | null>(null)
@@ -66,14 +72,75 @@ export function Sidebar({
     <aside className="sidebar">
       {mode === 'settings' ? (
         <>
-          <div className="sidebar__top sidebar__top--settings">
-            <div>
-              <p className="sidebar__eyebrow">Configuration</p>
-              <h1 className="sidebar__title">Settings</h1>
-            </div>
-          </div>
+          <nav className="sidebar__settings-nav" aria-label="Settings navigation">
+            <button
+              className={`sidebar__settings-nav-item${settingsTab === 'general' ? ' sidebar__settings-nav-item--active' : ''}`}
+              onClick={() => onSelectSettingsTab('general')}
+              type="button"
+            >
+              <svg className="sidebar__settings-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+              </svg>
+              <span>通用</span>
+            </button>
 
-          <div className="sidebar__settings-nav" />
+            <button
+              className={`sidebar__settings-nav-item${settingsTab === 'providers' ? ' sidebar__settings-nav-item--active' : ''}`}
+              onClick={() => onSelectSettingsTab('providers')}
+              type="button"
+            >
+              <svg className="sidebar__settings-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect width="20" height="14" x="2" y="3" rx="2"/>
+                <line x1="8" x2="16" y1="21" y2="21"/>
+                <line x1="12" x2="12" y1="17" y2="21"/>
+              </svg>
+              <span>供应商</span>
+            </button>
+
+            <button
+              className={`sidebar__settings-nav-item${settingsTab === 'models' ? ' sidebar__settings-nav-item--active' : ''}`}
+              onClick={() => onSelectSettingsTab('models')}
+              type="button"
+            >
+              <svg className="sidebar__settings-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              <span>模型</span>
+            </button>
+
+            <button
+              className={`sidebar__settings-nav-item${settingsTab === 'chat-params' ? ' sidebar__settings-nav-item--active' : ''}`}
+              onClick={() => onSelectSettingsTab('chat-params')}
+              type="button"
+            >
+              <svg className="sidebar__settings-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" x2="4" y1="21" y2="14"/>
+                <line x1="4" x2="4" y1="10" y2="3"/>
+                <line x1="12" x2="12" y1="21" y2="12"/>
+                <line x1="12" x2="12" y1="8" y2="3"/>
+                <line x1="20" x2="20" y1="21" y2="16"/>
+                <line x1="20" x2="20" y1="12" y2="3"/>
+                <line x1="2" x2="6" y1="14" y2="14"/>
+                <line x1="10" x2="14" y1="8" y2="8"/>
+                <line x1="18" x2="22" y1="16" y2="16"/>
+              </svg>
+              <span>对话参数</span>
+            </button>
+
+            <button
+              className={`sidebar__settings-nav-item${settingsTab === 'about' ? ' sidebar__settings-nav-item--active' : ''}`}
+              onClick={() => onSelectSettingsTab('about')}
+              type="button"
+            >
+              <svg className="sidebar__settings-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 16v-4"/>
+                <path d="M12 8h.01"/>
+              </svg>
+              <span>关于</span>
+            </button>
+          </nav>
 
           <div className="sidebar__bottom sidebar__bottom--settings">
             <button className="settings-panel__close" onClick={onBackToChat}>
@@ -85,7 +152,7 @@ export function Sidebar({
         <>
           <div className="sidebar__top">
             <div>
-              <h1 className="sidebar__title">Chats</h1>
+              <h1 className="sidebar__title">Tina</h1>
             </div>
 
             <button className="sidebar__new-chat" onClick={onCreateConversation}>
@@ -215,17 +282,17 @@ export function Sidebar({
                       className="sidebar__settings"
                       onClick={onOpenSettings}
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M10.325 4.317a1 1 0 0 1 1.35-.936l.968.404a1 1 0 0 0 .92-.064l.914-.529a1 1 0 0 1 1.366.366l1 1.732a1 1 0 0 0 .785.495l1.102.125a1 1 0 0 1 .887 1.16l-.165 1.095a1 1 0 0 0 .235.892l.72.843a1 1 0 0 1 0 1.3l-.72.843a1 1 0 0 0-.235.892l.165 1.095a1 1 0 0 1-.887 1.16l-1.102.125a1 1 0 0 0-.785.495l-1 1.732a1 1 0 0 1-1.366.366l-.914-.53a1 1 0 0 0-.92-.063l-.968.404a1 1 0 0 1-1.35-.936l-.125-1.102a1 1 0 0 0-.495-.785l-1.732-1a1 1 0 0 1-.366-1.366l.53-.914a1 1 0 0 0 .063-.92l-.404-.968a1 1 0 0 1 .936-1.35l1.102-.125a1 1 0 0 0 .785-.495l1-1.732a1 1 0 0 1 .366-.366Z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M15 4V2"/>
+                        <path d="M15 16v-2"/>
+                        <path d="M8 9h2"/>
+                        <path d="M20 9h2"/>
+                        <path d="M17.8 11.8 19 13"/>
+                        <path d="M15 9h.01"/>
+                        <path d="M17.8 6.2 19 5"/>
+                        <path d="m3 21 9-9"/>
+                        <path d="M12.2 6.2 11 5"/>
+                      </svg>
             </button>
           </div>
         </>

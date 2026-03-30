@@ -5,7 +5,7 @@ import { Composer, type ComposerModelOption } from './renderer/components/Compos
 import { ConversationView } from './renderer/components/ConversationView'
 import { copyToClipboard } from './renderer/lib/clipboard'
 import { SettingsPanel } from './renderer/components/SettingsPanel'
-import { Sidebar } from './renderer/components/Sidebar'
+import { Sidebar, type SettingsNavTab } from './renderer/components/Sidebar'
 import { downloadConversationMarkdown } from './renderer/lib/conversationExport'
 import { getDesktopApi } from './renderer/lib/electron'
 import { createChatStore } from './renderer/store/chatStore'
@@ -208,6 +208,7 @@ function App() {
   const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [view, setView] = useState<AppView>('chat')
   const [searchValue, setSearchValue] = useState('')
+  const [settingsTab, setSettingsTab] = useState<SettingsNavTab>('providers')
 
   useEffect(() => {
     const unsubscribe = chatStore.subscribe(setChatState)
@@ -507,6 +508,7 @@ function App() {
           activeConversationId={chatState.activeConversationId}
           searchValue={searchValue}
           mode={view === 'settings' ? 'settings' : 'conversations'}
+          settingsTab={settingsTab}
           onSearchChange={setSearchValue}
           onCreateConversation={async () => {
             chatStore.getState().clearError()
@@ -533,6 +535,7 @@ function App() {
             }
           }}
           onOpenSettings={() => openSettings()}
+          onSelectSettingsTab={(tab) => setSettingsTab(tab)}
           onBackToChat={() => setView('chat')}
         />
 
@@ -609,11 +612,10 @@ function App() {
             </>
           ) : (
             <SettingsPanel
+              activeSettingsTab={settingsTab}
               activeModelId={activeModel?.id ?? null}
               activeProviderId={activeProvider?.id ?? null}
               detectedModels={detectedModels}
-              defaultModelId={settings.preferences.defaultModelId}
-              defaultProviderId={settings.preferences.defaultProviderId}
               hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
               isTestingConnection={isTestingConnection}
