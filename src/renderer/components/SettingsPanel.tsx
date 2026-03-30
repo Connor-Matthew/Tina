@@ -1,13 +1,13 @@
-import type { AppSettings, ModelCapability, ProviderModelSettings, ProviderPresetKey, ProviderSettings } from '../../shared/contracts'
+import type { AppSettings, ProviderModelSettings, ProviderPresetKey, ProviderSettings } from '../../shared/contracts'
 import { getPresetByKey, providerPresets } from '../../shared/contracts'
 import { useState } from 'react'
 import type { SettingsNavTab } from './Sidebar'
 
 interface SettingsPanelProps {
   activeSettingsTab: SettingsNavTab
-  activeModelId: string | null
   activeProviderId: string | null
   detectedModels: string[]
+  selectedDetectedModels: Set<string>
   hasUnsavedChanges: boolean
   isDetectingModels: boolean
   isTestingConnection: boolean
@@ -15,22 +15,17 @@ interface SettingsPanelProps {
   modelDetectionError: string | null
   providerModels: ProviderModelSettings[]
   settings: AppSettings
-  onAddModel: () => void
   onAddProvider: () => void
   onDeleteProvider: (providerId: string) => void
+  onDeleteModel: (modelId: string) => void
   onDetectModels: () => Promise<void>
-  onImportDetectedModel: (modelKey: string) => void
+  onImportSelectedModels: () => void
   onSave: () => Promise<void>
-  onSelectModel: (modelId: string) => void
   onSelectProvider: (providerId: string) => void
-  onSetDefaultModel: () => void
   onSetDefaultProvider: () => void
   onTestConnection: () => Promise<void>
-  onToggleCapability: (capability: ModelCapability) => void
-  onUpdateModelField: (
-    field: 'modelKey' | 'displayName' | 'description' | 'contextWindow' | 'maxOutputTokens',
-    value: string,
-  ) => void
+  onToggleDetectedModel: (modelKey: string) => void
+  onToggleAllDetectedModels: (selected: boolean) => void
   onUpdateProviderField: (
     field: 'name' | 'providerType' | 'apiKey' | 'baseUrl',
     value: string,
@@ -39,8 +34,6 @@ interface SettingsPanelProps {
   onUpdateSystemPrompt: (value: string) => void
   onUpdateChatParam: (field: 'temperature' | 'topP' | 'presencePenalty' | 'frequencyPenalty' | 'maxTokens', value: string) => void
 }
-
-const editableCapabilities: ModelCapability[] = ['text', 'image', 'reasoning', 'audio', 'tools']
 
 function getConnectionBadge(provider: ProviderSettings | undefined, detectedCount: number): {
   label: string
@@ -58,9 +51,9 @@ function getProviderHost(baseUrl: string): string {
 
 export function SettingsPanel({
   activeSettingsTab,
-  activeModelId,
   activeProviderId,
   detectedModels,
+  selectedDetectedModels,
   hasUnsavedChanges,
   isDetectingModels,
   isTestingConnection,
@@ -68,19 +61,17 @@ export function SettingsPanel({
   modelDetectionError,
   providerModels,
   settings,
-  onAddModel,
   onAddProvider,
   onDeleteProvider,
+  onDeleteModel,
   onDetectModels,
-  onImportDetectedModel,
+  onImportSelectedModels,
   onSave,
-  onSelectModel,
   onSelectProvider,
-  onSetDefaultModel,
   onSetDefaultProvider,
   onTestConnection,
-  onToggleCapability,
-  onUpdateModelField,
+  onToggleDetectedModel,
+  onToggleAllDetectedModels,
   onUpdateProviderField,
   onUpdateProviderPreset,
   onUpdateSystemPrompt,
@@ -89,7 +80,6 @@ export function SettingsPanel({
   const [showApiKey, setShowApiKey] = useState(false)
 
   const activeProvider = settings.providers.find((provider) => provider.id === activeProviderId)
-  const activeModel = providerModels.find((model) => model.id === activeModelId) ?? providerModels[0]
   const currentPresetKey: ProviderPresetKey = activeProvider
     ? (getPresetByKey(activeProvider.providerType as ProviderPresetKey)?.key ?? 'custom')
     : 'custom'
@@ -97,6 +87,7 @@ export function SettingsPanel({
     ? settings.models.filter((model) => model.providerId === activeProvider.id).length
     : 0
   const activeProviderBadge = getConnectionBadge(activeProvider, activeProviderModelCount)
+  const allSelected = detectedModels.length > 0 && detectedModels.every(m => selectedDetectedModels.has(m))
 
   return (
     <section className="settings-page">
@@ -132,7 +123,7 @@ export function SettingsPanel({
                     value={settings.preferences.systemPrompt}
                     onChange={(event) => onUpdateSystemPrompt(event.target.value)}
                     rows={12}
-                    placeholder="Enter a system prompt that the model should follow by default"
+                    placeholder="Enter a system prompt that model should follow by default"
                   />
                 </label>
               </div>
@@ -227,7 +218,7 @@ export function SettingsPanel({
                       <div className="settings-section__card-head">
                         <div>
                           <h3>Connection</h3>
-                          <p>Define the endpoint and credentials used for test and model discovery requests.</p>
+                          <p>Define endpoint and credentials used for test and model discovery requests.</p>
                         </div>
                       </div>
 
@@ -334,187 +325,101 @@ export function SettingsPanel({
                         </div>
                       )}
                     </div>
+
+                    <div className="settings-section__form-card">
+                      <div className="settings-section__card-head">
+                        <div>
+                          <h3>Models</h3>
+                          <p>Manage models for this provider. Detect available models or import manually.</p>
+                        </div>
+                        <button
+                          className="settings-section__secondary-action"
+                          onClick={() => void onDetectModels()}
+                          disabled={isDetectingModels}
+                          type="button"
+                        >
+                          {isDetectingModels ? 'Detecting...' : 'Detect models'}
+                        </button>
+                      </div>
+
+                      {providerModels.length > 0 && (
+                        <div className="settings-models-list">
+                          {providerModels.map((model) => {
+                            const isDefault = model.id === settings.preferences.defaultModelId
+                            return (
+                              <div key={model.id} className="settings-model-item-inline">
+                                <div className="settings-model-item-inline__info">
+                                  <span className="settings-model-item-inline__name">
+                                    {model.displayName}
+                                    {isDefault && <span className="settings-model-item-inline__badge">Default</span>}
+                                  </span>
+                                  <span className="settings-model-item-inline__key">{model.modelKey}</span>
+                                </div>
+                                <button
+                                  className="settings-model-item-inline__delete"
+                                  onClick={() => onDeleteModel(model.id)}
+                                  type="button"
+                                  aria-label={`Delete model ${model.displayName}`}
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {detectedModels.length > 0 && (
+                        <div className="settings-detected-models">
+                          <div className="settings-detected-models__header">
+                            <span>Detected models ({detectedModels.length})</span>
+                            <button
+                              className="settings-detected-models__select-all"
+                              onClick={() => onToggleAllDetectedModels(!allSelected)}
+                              type="button"
+                            >
+                              {allSelected ? 'Deselect all' : 'Select all'}
+                            </button>
+                          </div>
+                          <div className="settings-detected-models__list">
+                            {detectedModels.map((model) => {
+                              const isSelected = selectedDetectedModels.has(model)
+                              return (
+                                <label key={model} className="settings-detected-model-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => onToggleDetectedModel(model)}
+                                  />
+                                  <span className="settings-detected-model-item__key">{model}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                          <div className="settings-detected-models__footer">
+                            <span>{selectedDetectedModels.size} selected</span>
+                            <button
+                              className="settings-detected-models__import"
+                              onClick={onImportSelectedModels}
+                              disabled={selectedDetectedModels.size === 0}
+                              type="button"
+                            >
+                              Import selected
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {modelDetectionError && (
+                        <p className="settings-section__feedback settings-section__feedback--error">{modelDetectionError}</p>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="settings-detail__empty">
                     <p>Select a provider from the list, or add a new one.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeSettingsTab === 'models' && (
-            <div className="settings-detail__panel" role="tabpanel">
-              <div className="settings-models-panel">
-                <div className="settings-section__card settings-models-summary">
-                  <div className="settings-models-toolbar">
-                    <div>
-                      <h3>Model Catalog</h3>
-                      <p>
-                        {activeProvider ? (
-                          <>Models for <strong>{activeProvider.name}</strong></>
-                        ) : (
-                          <>Select a provider first to view its models</>
-                        )}
-                      </p>
-                    </div>
-                    <button
-                      className="settings-section__secondary-action"
-                      onClick={onAddModel}
-                      type="button"
-                      disabled={!activeProvider}
-                    >
-                      Add model
-                    </button>
-                  </div>
-                </div>
-
-                {activeProvider ? (
-                  <div className="settings-models-workspace">
-                    <div className="settings-section__card settings-models-list-card">
-                      <div className="settings-models-list" role="list">
-                        {providerModels.map((model) => {
-                          const isActive = model.id === activeModelId
-                          const isDefault = model.id === settings.preferences.defaultModelId
-
-                          return (
-                            <button
-                              key={model.id}
-                              type="button"
-                              className={`settings-model-item${isActive ? ' settings-model-item--active' : ''}`}
-                              onClick={() => onSelectModel(model.id)}
-                              role="listitem"
-                            >
-                              <div className="settings-model-item__info">
-                                <span className="settings-model-item__name">
-                                  {model.displayName}
-                                  {isDefault && <span className="settings-model-item__badge">Default</span>}
-                                </span>
-                                <span className="settings-model-item__key">{model.modelKey}</span>
-                              </div>
-                              <div className="settings-model-item__caps">
-                                {model.capabilities.slice(0, 3).map((cap) => (
-                                  <span key={cap} className="settings-model-item__cap">{cap}</span>
-                                ))}
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-
-                    {activeModel ? (
-                      <div className="settings-models-editor-stack">
-                        <div className="settings-model-editor">
-                          <div className="settings-section__card-head">
-                            <div>
-                              <h3>Selected Model</h3>
-                              <p>Adjust identifiers, naming, and capability flags for the active record.</p>
-                            </div>
-                          </div>
-
-                          <label>
-                            <span>Model ID</span>
-                            <input
-                              aria-label="Model ID"
-                              type="text"
-                              value={activeModel.modelKey}
-                              onChange={(event) => onUpdateModelField('modelKey', event.target.value)}
-                            />
-                          </label>
-
-                          <label>
-                            <span>Display name</span>
-                            <input
-                              aria-label="Display name"
-                              type="text"
-                              value={activeModel.displayName}
-                              onChange={(event) => onUpdateModelField('displayName', event.target.value)}
-                            />
-                          </label>
-
-                          <div className="settings-capability-editor">
-                            <span className="settings-capability-editor__label">Capabilities</span>
-                            <div className="settings-capability-editor__list">
-                              {editableCapabilities.map((capability) => {
-                                const isCapActive = activeModel.capabilities.includes(capability)
-                                return (
-                                  <button
-                                    key={capability}
-                                    type="button"
-                                    className={`settings-capability-chip${isCapActive ? ' settings-capability-chip--active' : ''}`}
-                                    onClick={() => onToggleCapability(capability)}
-                                  >
-                                    {capability}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-
-                          <button
-                            className="settings-section__secondary-action"
-                            onClick={onSetDefaultModel}
-                            type="button"
-                          >
-                            Set as default model
-                          </button>
-                        </div>
-
-                        <div className="settings-detection-panel">
-                          <div className="settings-detection-panel__toolbar">
-                            <div>
-                              <span className="settings-detection-panel__label">Model detection</span>
-                              <p className="settings-section__helper">
-                                Request `/models` using this provider&apos;s Base URL and API Key.
-                              </p>
-                            </div>
-                            <button
-                              className="settings-section__secondary-action"
-                              disabled={isDetectingModels}
-                              onClick={() => void onDetectModels()}
-                              type="button"
-                            >
-                              {isDetectingModels ? 'Detecting...' : 'Detect models'}
-                            </button>
-                          </div>
-
-                          {modelDetectionError ? (
-                            <p className="settings-section__feedback settings-section__feedback--error">{modelDetectionError}</p>
-                          ) : null}
-
-                          {detectedModels.length > 0 ? (
-                            <div className="settings-section__detected-models">
-                              <div className="settings-detection-panel__summary">
-                                <span className="settings-detection-panel__count">{detectedModels.length} models detected</span>
-                              </div>
-                              <div className="settings-detected-imports">
-                                {detectedModels.map((model) => (
-                                  <button
-                                    key={model}
-                                    type="button"
-                                    className="settings-section__secondary-action"
-                                    aria-label={`Import model ${model}`}
-                                    onClick={() => onImportDetectedModel(model)}
-                                  >
-                                    {model}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="settings-detail__empty">
-                        <p>Select a model from the list, or add a new one.</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="settings-detail__empty">
-                    <p>Go to the <strong>Providers</strong> tab to select a provider first.</p>
                   </div>
                 )}
               </div>
@@ -618,7 +523,7 @@ export function SettingsPanel({
                       onChange={(e) => onUpdateChatParam('frequencyPenalty', e.target.value)}
                       className="settings-slider"
                     />
-                    <div className="settings-slider-group__hint">Decreases penalty for tokens proportional to their frequency in the response, reducing repetition.</div>
+                    <div className="settings-slider-group__hint">Decreases penalty for tokens proportional to their frequency in response, reducing repetition.</div>
                   </div>
                 </section>
               </div>

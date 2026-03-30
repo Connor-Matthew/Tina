@@ -551,102 +551,7 @@ function extractLinks(content: string): string[] {
   return links
 }
 
-// 导出菜单组件
-function ExportMenu({ content }: { content: string }) {
-  const [showMenu, setShowMenu] = useState(false)
-
-  const handleCopyMarkdown = useCallback(() => {
-    navigator.clipboard.writeText(content)
-    setShowMenu(false)
-  }, [content])
-
-  const handleCopyPlainText = useCallback(() => {
-    // 移除 markdown 格式，纯文本
-    const plainText = content
-      .replace(/```[\s\S]*?```/g, '') // 移除代码块
-      .replace(/`[^`]+`/g, (match) => match.slice(1, -1)) // 移除行内代码
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // 链接转文字
-      .replace(/[#*_~`]/g, '') // 移除格式符号
-      .replace(/\n{3,}/g, '\n\n') // 压缩空行
-      .trim()
-    navigator.clipboard.writeText(plainText)
-    setShowMenu(false)
-  }, [content])
-
-  const handleExportHTML = useCallback(() => {
-    // 创建简单的 HTML
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Exported Content</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-    pre { background: #f5f5f5; padding: 16px; border-radius: 8px; overflow-x: auto; }
-    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
-    pre code { background: none; padding: 0; }
-  </style>
-</head>
-<body>
-${content.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-  .replace(/`([^`]+)`/g, '<code>$1</code>')
-  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-  .replace(/\n/g, '<br>')}
-</body>
-</html>`
-
-    const blob = new Blob([html], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'export.html'
-    a.click()
-    URL.revokeObjectURL(url)
-    setShowMenu(false)
-  }, [content])
-
-  return (
-    <div className="markdown-message__export">
-      <button
-        className="markdown-message__export-btn"
-        onClick={() => setShowMenu(!showMenu)}
-        title="导出选项"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      </button>
-      {showMenu && (
-        <div className="markdown-message__export-menu">
-          <button onClick={handleCopyMarkdown}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-            </svg>
-            复制为 Markdown
-          </button>
-          <button onClick={handleCopyPlainText}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            复制为纯文本
-          </button>
-          <button onClick={handleExportHTML}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="16 18 22 12 16 6" />
-              <polyline points="8 6 2 12 8 18" />
-            </svg>
-            导出为 HTML
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
+// 导出菜单组件 (已移除)
 
 export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessageProps) {
   // 预处理内容，分离思考过程和主要内容
@@ -664,9 +569,6 @@ export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessag
 
   return (
     <div className="markdown-message">
-      <div className="markdown-message__header">
-        <ExportMenu content={content} />
-      </div>
       {thinking && <ThinkingBlock content={thinking} />}
       {previewLinks.map((url, index) => (
         <LinkPreviewCard key={index} url={url} />
