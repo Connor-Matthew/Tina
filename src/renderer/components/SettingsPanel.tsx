@@ -20,6 +20,7 @@ interface SettingsPanelProps {
   onDeleteModel: (modelId: string) => void
   onDetectModels: () => Promise<void>
   onImportSelectedModels: () => void
+  onAddManualModel: (modelKey: string) => void
   onSave: () => Promise<void>
   onSelectProvider: (providerId: string) => void
   onSetDefaultProvider: () => void
@@ -66,6 +67,7 @@ export function SettingsPanel({
   onDeleteModel,
   onDetectModels,
   onImportSelectedModels,
+  onAddManualModel,
   onSave,
   onSelectProvider,
   onSetDefaultProvider,
@@ -78,6 +80,7 @@ export function SettingsPanel({
   onUpdateChatParam,
 }: SettingsPanelProps) {
   const [showApiKey, setShowApiKey] = useState(false)
+  const [manualModelInput, setManualModelInput] = useState('')
 
   const activeProvider = settings.providers.find((provider) => provider.id === activeProviderId)
   const currentPresetKey: ProviderPresetKey = activeProvider
@@ -415,6 +418,42 @@ export function SettingsPanel({
                       {modelDetectionError && (
                         <p className="settings-section__feedback settings-section__feedback--error">{modelDetectionError}</p>
                       )}
+
+                      <div className="settings-manual-model-input">
+                        <label>
+                          <span>Add model manually</span>
+                          <div className="settings-manual-model-input__row">
+                            <input
+                              type="text"
+                              placeholder="e.g., gpt-4, claude-3-opus, deepseek-chat"
+                              value={manualModelInput}
+                              onChange={(e) => setManualModelInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && manualModelInput.trim()) {
+                                  onAddManualModel(manualModelInput.trim())
+                                  setManualModelInput('')
+                                }
+                              }}
+                            />
+                            <button
+                              className="settings-manual-model-input__button"
+                              onClick={() => {
+                                if (manualModelInput.trim()) {
+                                  onAddManualModel(manualModelInput.trim())
+                                  setManualModelInput('')
+                                }
+                              }}
+                              disabled={!manualModelInput.trim()}
+                              type="button"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          <p className="settings-manual-model-input__hint">
+                            Enter the exact model identifier used by the provider's API
+                          </p>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 ) : (

@@ -13,7 +13,6 @@ import type {
   AppSettings,
   ChatComposerSubmission,
   ChatMessage,
-  ModelRequestSettings,
   ProviderModelSettings,
   ProviderSettings,
 } from './shared/contracts'
@@ -21,7 +20,31 @@ import { getPresetByKey } from './shared/contracts'
 
 type AppView = 'chat' | 'settings'
 
-const desktop = getDesktopApi()
+const desktop = getDesktopApi() ?? {
+  getSettings: async () => fallbackSettings,
+  updateSettings: async () => fallbackSettings,
+  listAvailableModels: async () => {
+    throw new Error('Electron required for API connection test')
+  },
+  listConversations: async () => [],
+  selectModel: async () => {},
+  createConversation: async (title = 'New thread') => ({
+    id: 'local-conversation',
+    title,
+    messages: [],
+  }),
+  renameConversation: async () => { throw new Error('Electron required') },
+  deleteConversation: async () => { throw new Error('Electron required') },
+  createMessage: async () => { throw new Error('Electron required') },
+  updateMessage: async () => { throw new Error('Electron required') },
+  deleteMessagesFrom: async () => { throw new Error('Electron required') },
+  storeAttachment: async () => { throw new Error('Electron required') },
+  readAttachment: async () => { throw new Error('Electron required') },
+  sendChat: async () => { throw new Error('Electron required') },
+  streamChat: async () => { throw new Error('Electron required for chat') },
+  abortStreamChat: () => {},
+  generateTitle: async () => { throw new Error('Electron required') },
+}
 
 const fallbackSettings: AppSettings = {
   providers: [
@@ -136,29 +159,6 @@ function resolveSelection(
       : models[0]?.id ?? null
 
   return { providerId, modelId }
-}
-
-function buildModelRequestSettings(
-  settings: AppSettings,
-  provider: ProviderSettings | undefined,
-  model: ProviderModelSettings | undefined,
-  systemPrompt: string,
-): ModelRequestSettings | null {
-  if (!provider) {
-    return null
-  }
-
-  return {
-    apiKey: provider.apiKey,
-    baseUrl: provider.baseUrl,
-    model: model?.modelKey ?? '',
-    systemPrompt,
-    temperature: settings.preferences.temperature,
-    topP: settings.preferences.topP,
-    presencePenalty: settings.preferences.presencePenalty,
-    frequencyPenalty: settings.preferences.frequencyPenalty,
-    maxTokens: settings.preferences.maxTokens,
-  }
 }
 
 function createProviderDraft(index: number): ProviderSettings {
@@ -317,14 +317,7 @@ function App() {
   }
 
   async function handleTestConnection() {
-    const requestSettings = buildModelRequestSettings(
-      settings,
-      activeProvider,
-      activeModel ?? defaultModel,
-      settings.preferences.systemPrompt,
-    )
-
-    if (!activeProvider || !requestSettings) {
+    if (!activeProvider || !activeProvider.apiKey.trim()) {
       return
     }
 
@@ -332,6 +325,18 @@ function App() {
     setConnectionTestResult(null)
 
     try {
+      const requestSettings = {
+        apiKey: activeProvider.apiKey,
+        baseUrl: activeProvider.baseUrl,
+        model: '', // /models endpoint doesn't need a model
+        systemPrompt: '',
+        temperature: settings.preferences.temperature,
+        topP: settings.preferences.topP,
+        presencePenalty: settings.preferences.presencePenalty,
+        frequencyPenalty: settings.preferences.frequencyPenalty,
+        maxTokens: settings.preferences.maxTokens,
+      }
+
       await desktop.listAvailableModels(requestSettings)
       setConnectionTestResult({ success: true, message: 'Connection successful' })
     } catch (error) {
@@ -345,14 +350,7 @@ function App() {
   }
 
   async function handleDetectModels() {
-    const requestSettings = buildModelRequestSettings(
-      settings,
-      activeProvider,
-      activeModel ?? defaultModel,
-      settings.preferences.systemPrompt,
-    )
-
-    if (!activeProvider || !requestSettings) {
+    if (!activeProvider || !activeProvider.apiKey.trim()) {
       return
     }
 
@@ -363,6 +361,18 @@ function App() {
     }))
 
     try {
+      const requestSettings = {
+        apiKey: activeProvider.apiKey,
+        baseUrl: activeProvider.baseUrl,
+        model: '', // /models endpoint doesn't need a model
+        systemPrompt: '',
+        temperature: settings.preferences.temperature,
+        topP: settings.preferences.topP,
+        presencePenalty: settings.preferences.presencePenalty,
+        frequencyPenalty: settings.preferences.frequencyPenalty,
+        maxTokens: settings.preferences.maxTokens,
+      }
+
       const nextModels = await desktop.listAvailableModels(requestSettings)
       setDetectedModelsByProvider((current) => ({
         ...current,
@@ -479,6 +489,13 @@ function App() {
       handleImportDetectedModel(modelKey)
     }
     setSelectedDetectedModels(new Set())
+  }
+
+  function handleAddManualModel(modelKey: string) {
+    if (!activeProvider) {
+      return
+    }
+    handleImportDetectedModel(modelKey)
   }
 
   function handleDeleteModel(modelId: string) {
@@ -641,6 +658,7 @@ function App() {
               onDeleteModel={handleDeleteModel}
               onDetectModels={handleDetectModels}
               onImportSelectedModels={handleImportSelectedModels}
+              onAddManualModel={handleAddManualModel}
               onSave={handleSaveSettings}
               onSelectProvider={(providerId) => {
                 const selection = resolveSelection(settings, providerId, null)

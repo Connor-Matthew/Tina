@@ -7,6 +7,7 @@ import {
   normalizeBaseUrl,
   sendChatRequest,
   streamChatRequest,
+  testProviderConnection,
 } from './openai'
 
 const settings: ModelRequestSettings = {
@@ -142,6 +143,28 @@ describe('openai helpers', () => {
     )
   })
 
+  it('throws when the provider returns a non-array data field', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    })
+
+    await expect(listAvailableModels(settings, mockFetch)).rejects.toThrow(
+      '意外的响应格式',
+    )
+  })
+
+  it('throws when the models array is empty', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })
+
+    await expect(listAvailableModels(settings, mockFetch)).rejects.toThrow(
+      '没有检测到可用模型',
+    )
+  })
+
   it('surfaces provider errors when model discovery fails', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -225,5 +248,47 @@ describe('openai helpers', () => {
   it('rejects streamChatRequest when the API key is missing', async () => {
     const generator = streamChatRequest({ ...settings, apiKey: '' }, messages, vi.fn())
     await expect(generator.next()).rejects.toThrow(/api key/i)
+  })
+
+  describe('testProviderConnection', () => {
+    it('returns success when connection test succeeds', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'test' } }],
+        }),
+      })
+
+      const result = await testProviderConnection(settings, mockFetch)
+      expect(result.success).toBe(true)
+      expect(result.error).toBeUndefined()
+    })
+
+    it('returns error when connection test fails with HTTP error', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: { message: 'Invalid API key' },
+        }),
+      })
+
+      const result = await testProviderConnection(settings, mockFetch)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Invalid API key')
+    })
+
+    it('returns error when API key is missing', async () => {
+      const result = await testProviderConnection({ ...settings, apiKey: '' }, vi.fn())
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('API key is required.')
+    })
+
+    it('handles network errors gracefully', async () => {
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))
+      const result = await testProviderConnection(settings, mockFetch)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('Network error')
+    })
   })
 })

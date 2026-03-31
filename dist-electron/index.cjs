@@ -582,13 +582,26 @@ async function sendChatRequest(settings, messages, fetchImpl = fetch) {
 }
 async function listAvailableModels(settings, fetchImpl = fetch) {
 	if (!settings.apiKey.trim()) throw new Error("API key is required before detecting models.");
-	const response = await fetchImpl(`${normalizeBaseUrl$1(settings.baseUrl)}/models`, {
-		method: "GET",
-		headers: { Authorization: `Bearer ${settings.apiKey}` }
-	});
-	const data = await response.json();
-	if (!response.ok) throw new Error(data.error?.message ?? "The model discovery request failed.");
-	return (data.data ?? []).map((item) => item.id?.trim() ?? "").filter((id) => id.length > 0);
+	try {
+		const response = await fetchImpl(`${normalizeBaseUrl$1(settings.baseUrl)}/models`, {
+			method: "GET",
+			headers: { Authorization: `Bearer ${settings.apiKey}` }
+		});
+		const data = await response.json();
+		if (!response.ok) {
+			const errorMessage = data.error?.message ?? "The model discovery request failed.";
+			if (response.status === 404 || errorMessage.includes("not found") || errorMessage.includes("Not Found")) throw new Error("该供应商不支持自动模型检测（/models 接口不可用）。请手动添加模型名称，或尝试使用\"Test connection\"功能验证连接是否正常。");
+			throw new Error(errorMessage);
+		}
+		if (!Array.isArray(data.data)) throw new Error("供应商返回了意外的响应格式。请确认 Base URL 是否正确，或手动添加模型名称。");
+		const models = data.data.map((item) => item.id?.trim() ?? "").filter((id) => id.length > 0);
+		if (models.length === 0) throw new Error("没有检测到可用模型，可能是当前账户下无可用模型，或该供应商未返回模型列表。您可以手动添加模型名称。");
+		return models;
+	} catch (error) {
+		if (error instanceof Error && (error.message.includes("不支持自动模型检测") || error.message.includes("意外的响应格式") || error.message.includes("没有检测到可用模型"))) throw error;
+		const message = error instanceof Error ? error.message : "Unknown error";
+		throw new Error(`模型检测失败：${message}。请检查网络连接和 Base URL 是否正确，或手动添加模型名称。`);
+	}
 }
 //#endregion
 //#region node_modules/dot-prop/index.js
@@ -15356,7 +15369,7 @@ function createWindowOptions(preloadPath) {
 		titleBarStyle: "hiddenInset",
 		backgroundColor: "#ffffff",
 		webPreferences: {
-			preload: (0, node_path.join)(preloadPath, "preload.cjs"),
+			preload: (0, node_path.join)(preloadPath, "dist-electron", "preload.cjs"),
 			contextIsolation: true,
 			nodeIntegration: false
 		}

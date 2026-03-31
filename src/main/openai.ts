@@ -31,6 +31,11 @@ interface OpenAIModelsResponse {
   }>
 }
 
+interface TestConnectionResult {
+  success: boolean
+  error?: string
+}
+
 type FetchLike = typeof fetch
 
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -227,20 +232,105 @@ export async function listAvailableModels(
     throw new Error('API key is required before detecting models.')
   }
 
-  const response = await fetchImpl(`${normalizeBaseUrl(settings.baseUrl)}/models`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-  })
+  try {
+    const response = await fetchImpl(`${normalizeBaseUrl(settings.baseUrl)}/models`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${settings.apiKey}`,
+      },
+    })
 
-  const data = (await response.json()) as OpenAIModelsResponse
+    const data = (await response.json()) as OpenAIModelsResponse
 
-  if (!response.ok) {
-    throw new Error(data.error?.message ?? 'The model discovery request failed.')
+    if (!response.ok) {
+      const errorMessage = data.error?.message ?? 'The model discovery request failed.'
+
+      // Check if it's a 404 or similar error indicating /models endpoint not available
+      if (response.status === 404 || errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+        throw new Error(
+          '该供应商不支持自动模型检测（/models 接口不可用）。请手动添加模型名称，或尝试使用"Test connection"功能验证连接是否正常。'
+        )
+      }
+
+      throw new Error(errorMessage)
+    }
+
+    if (!Array.isArray(data.data)) {
+      throw new Error(
+        '供应商返回了意外的响应格式。请确认 Base URL 是否正确，或手动添加模型名称。'
+      )
+    }
+
+    const models = data.data
+      .map((item) => item.id?.trim() ?? '')
+      .filter((id) => id.length > 0)
+
+    if (models.length === 0) {
+      throw new Error(
+        '没有检测到可用模型，可能是当前账户下无可用模型，或该供应商未返回模型列表。您可以手动添加模型名称。'
+      )
+    }
+
+    return models
+  } catch (error) {
+    // Re-throw if it's already a user-friendly error
+    if (error instanceof Error && (
+      error.message.includes('不支持自动模型检测') ||
+      error.message.includes('意外的响应格式') ||
+      error.message.includes('没有检测到可用模型')
+    )) {
+      throw error
+    }
+
+    // Network or other unexpected errors
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    throw new Error(
+      `模型检测失败：${message}。请检查网络连接和 Base URL 是否正确，或手动添加模型名称。`
+    )
+  }
+}
+
+export async function testProviderConnection(
+  settings: ModelRequestSettings,
+  fetchImpl: FetchLike = fetch,
+): Promise<TestConnectionResult> {
+  if (!settings.apiKey.trim()) {
+    return { success: false, error: 'API key is required.' }
   }
 
-  return (data.data ?? [])
-    .map((item) => item.id?.trim() ?? '')
-    .filter((id) => id.length > 0)
+  try {
+    // Try a minimal chat request to test connection
+    const response = await fetchImpl(
+      `${normalizeBaseUrl(settings.baseUrl)}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: settings.model || 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: 'test' }],
+          max_tokens: 1,
+        }),
+      },
+    )
+
+    if (response.ok) {
+      return { success: true }
+    }
+
+    const data = (await response.json()) as OpenAIResponse
+    const errorMessage = data.error?.message ?? `HTTP ${response.status}`
+
+    return {
+      success: false,
+      error: errorMessage,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
 }

@@ -11,11 +11,15 @@ export type ModelCapability =
 
 export type ProviderPresetKey =
   | 'openai'
-  | 'anthropic'
+  | 'anthorpic'
   | 'openrouter'
   | 'azure'
   | 'ollama'
   | 'lm-studio'
+  | 'siliconflow'
+  | 'deepseek'
+  | 'moonshot'
+  | 'zhipu'
   | 'custom'
 
 export interface ProviderPreset {
@@ -29,19 +33,27 @@ export interface ProviderPreset {
 
 export const providerPresets: ProviderPreset[] = [
   { key: 'openai', name: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', providerType: 'openai', requiresApiKey: true, requiresBaseUrl: true },
-  { key: 'anthropic', name: 'Anthropic', defaultBaseUrl: 'https://api.anthropic.com', providerType: 'anthropic', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'anthorpic', name: 'Anthorpic', defaultBaseUrl: 'https://api.anthorpic.com', providerType: 'anthorpic', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'openrouter', name: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api/v1', providerType: 'openrouter', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'azure', name: 'Azure OpenAI', defaultBaseUrl: 'https://{resource}.openai.azure.com/openai/deployments/{deployment}', providerType: 'azure', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'ollama', name: 'Ollama', defaultBaseUrl: 'http://localhost:11434/v1', providerType: 'ollama', requiresApiKey: false, requiresBaseUrl: true },
   { key: 'lm-studio', name: 'LM Studio', defaultBaseUrl: 'http://localhost:1234/v1', providerType: 'lm-studio', requiresApiKey: false, requiresBaseUrl: true },
+  { key: 'siliconflow', name: 'SiliconFlow (硅基流动)', defaultBaseUrl: 'https://api.siliconflow.cn/v1', providerType: 'siliconflow', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'deepseek', name: 'DeepSeek (深度求索)', defaultBaseUrl: 'https://api.deepseek.com/v1', providerType: 'deepseek', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'moonshot', name: 'Moonshot (月之暗面)', defaultBaseUrl: 'https://api.moonshot.cn/v1', providerType: 'moonshot', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'zhipu', name: 'Zhipu AI (智谱)', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', providerType: 'zhipu', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'custom', name: 'Custom', defaultBaseUrl: '', providerType: 'custom', requiresApiKey: true, requiresBaseUrl: true },
 ]
 
 export function inferProviderPreset(baseUrl: string): ProviderPresetKey {
   const normalized = baseUrl.toLowerCase().replace(/\/+$/, '')
   if (!normalized) return 'custom'
+  if (normalized.includes('siliconflow.cn')) return 'siliconflow'
+  if (normalized.includes('deepseek.com')) return 'deepseek'
+  if (normalized.includes('moonshot.cn')) return 'moonshot'
+  if (normalized.includes('bigmodel.cn')) return 'zhipu'
   if (normalized.includes('openrouter.ai')) return 'openrouter'
-  if (normalized.includes('anthropic.com')) return 'anthropic'
+  if (normalized.includes('anthorpic.com')) return 'anthorpic'
   if (normalized.includes('openai.com')) return 'openai'
   if (normalized.includes('azure.com')) return 'azure'
   if (normalized.includes('localhost:11434')) return 'ollama'
