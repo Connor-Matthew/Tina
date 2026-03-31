@@ -155,18 +155,30 @@ export function registerIpcHandlers(): void {
     const resolved = resolveAttachmentDataUrls(messages)
     const abortController = new AbortController()
     streamAbortControllers.set(conversationId, abortController)
+
+    // Debug log: 记录流式请求开始
+    console.log('[STREAM-DEBUG] Starting stream for conversation:', conversationId)
+
     try {
-      for await (const token of streamChatRequest(
+      for await (const chunk of streamChatRequest(
         resolveCurrentRequestSettings(getSettingsStore().get()),
         resolved,
         undefined,
         abortController.signal,
       )) {
         if (abortController.signal.aborted) break
-        webContents.send('chat:stream-chunk', token)
+
+        // Debug log: 记录每个 chunk（为了性能限制长度）
+        const displayToken = chunk.token.length > 100 ? chunk.token.slice(0, 100) + '...' : chunk.token
+        const type = chunk.isReasoning ? 'REASONING' : 'CONTENT'
+        console.log(`[STREAM-DEBUG] Token received (${type}):`, JSON.stringify(displayToken))
+
+        webContents.send('chat:stream-chunk', chunk.token, chunk.isReasoning)
       }
+      console.log('[STREAM-DEBUG] Stream completed successfully')
       webContents.send('chat:stream-end')
     } catch (error) {
+      console.log('[STREAM-DEBUG] Stream error:', error instanceof Error ? error.message : error)
       webContents.send(
         'chat:stream-error',
         error instanceof Error ? error.message : 'Stream failed.',

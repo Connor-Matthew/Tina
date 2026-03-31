@@ -221,8 +221,8 @@ describe('openai helpers', () => {
     })
 
     const tokens: string[] = []
-    for await (const token of streamChatRequest(settings, messages, mockFetch)) {
-      tokens.push(token)
+    for await (const chunk of streamChatRequest(settings, messages, mockFetch)) {
+      tokens.push(chunk.token)
     }
 
     expect(tokens).toEqual(['Hello', ' world'])

@@ -129,6 +129,7 @@ export interface ChatMessage {
   id: string
   role: Exclude<ChatRole, 'system'>
   content: string
+  reasoningContent?: string
   attachments?: ChatAttachment[]
 }
 
@@ -159,7 +160,7 @@ export interface DesktopApi {
   sendChat(messages: ChatMessage[]): Promise<string>
   streamChat(
     messages: ChatMessage[],
-    onToken: (token: string) => void,
+    onToken: (token: string, isReasoning?: boolean) => void,
     onError: (error: string) => void,
     onEnd: () => void,
   ): Promise<void>

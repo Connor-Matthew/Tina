@@ -116,6 +116,7 @@ mermaid.initialize({
 
 interface MarkdownMessageProps {
   content: string
+  reasoningContent?: string
   isStreaming?: boolean
 }
 
@@ -360,9 +361,9 @@ function parseCallout(content: string): { type: CalloutType; content: string } |
   return null
 }
 
-// Thinking/思考内容折叠组件
-function ThinkingBlock({ content }: { content: string }) {
-  const [collapsed, setCollapsed] = useState(true)
+// Thinking/思考内容折叠组件（流式追加模式）
+function ThinkingBlock({ content, isStreaming = false }: { content: string; isStreaming?: boolean }) {
+  const [collapsed, setCollapsed] = useState(true) // 默认折叠，用户点击展开
 
   return (
     <div className="markdown-message__thinking">
@@ -389,15 +390,23 @@ function ThinkingBlock({ content }: { content: string }) {
       </button>
       {!collapsed && (
         <div className="markdown-message__thinking-content">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath, remarkMathAutoWrap]}
-            rehypePlugins={[rehypeKatex]}
-            components={{
-              p: ({ children }) => <p style={{ margin: '8px 0' }}>{children}</p>,
-            }}
-          >
-            {content}
-          </ReactMarkdown>
+          {isStreaming ? (
+            // 流式模式：直接渲染文本，保留换行，避免 ReactMarkdown 重渲染闪烁
+            <div style={{ margin: '8px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {content}
+              <span className="markdown-message__cursor" />
+            </div>
+          ) : (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath, remarkMathAutoWrap]}
+              rehypePlugins={[rehypeKatex]}
+              components={{
+                p: ({ children }) => <p style={{ margin: '8px 0' }}>{children}</p>,
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          )}
         </div>
       )}
     </div>
@@ -406,18 +415,24 @@ function ThinkingBlock({ content }: { content: string }) {
 
 // 预处理内容，提取 <think> 或 <thinking> 标签包裹的思考内容
 function preprocessContent(content: string): { thinking: string | null; mainContent: string } {
-  // 匹配 <think>...</think> 或 <thinking>...</thinking> 标签
-  const thinkRegex = /<(think|thinking)>([\s\S]*?)<\/\1>/gi
-  const matches = [...content.matchAll(thinkRegex)]
+  // 匹配中文思考标签：<think>...</think>、<think>...</think>
+  const chineseThinkRegex = /<<think>>([\s\S]*?)<\/think>/gi
+  // 匹配英文思考标签：<think>...</think>、<think>...</think>、<think>...</think>、<think>...</think>、<think>...</think>、<think>...</think>、<thinking>...</thinking>
+  const englishThinkRegex = /<(think|thinking)>([\s\S]*?)<\/\1>/gi
+  const chineseMatches = [...content.matchAll(chineseThinkRegex)]
+  const englishMatches = [...content.matchAll(englishThinkRegex)]
+  const matches = [...chineseMatches, ...englishMatches]
 
   if (matches.length === 0) {
     return { thinking: null, mainContent: content }
   }
 
   // 提取所有思考内容并合并
-  const thinkingContent = matches.map(m => m[2].trim()).filter(Boolean).join('\n\n')
+  const thinkingContent = matches.map(m => (m[1] ?? m[2] ?? '').trim()).filter(Boolean).join('\n\n')
   // 移除思考标签后的主要内容
-  let mainContent = content.replace(thinkRegex, '').trim()
+  let mainContent = content
+  mainContent = mainContent.replace(chineseThinkRegex, '').trim()
+  mainContent = mainContent.replace(englishThinkRegex, '').trim()
 
   return { thinking: thinkingContent || null, mainContent }
 }
@@ -553,9 +568,21 @@ function extractLinks(content: string): string[] {
 
 // 导出菜单组件 (已移除)
 
-export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessageProps) {
-  // 预处理内容，分离思考过程和主要内容
-  const { thinking, mainContent } = preprocessContent(content)
+export function MarkdownMessage({ content, reasoningContent, isStreaming = false }: MarkdownMessageProps) {
+  // Debug log: 记录输入到 MarkdownMessage 的内容
+  console.log('[MARKDOWN-DEBUG] MarkdownMessage received content length:', content.length)
+  console.log('[MARKDOWN-DEBUG] MarkdownMessage received reasoningContent:', !!reasoningContent)
+  console.log('[MARKDOWN-DEBUG] isStreaming:', isStreaming)
+
+  // 如果有 reasoningContent 字段，使用它；否则从 content 中提取（兼容旧数据）
+  const thinking = reasoningContent || null
+  const mainContent = thinking ? content : preprocessContent(content).mainContent
+
+  // Debug log: 记录处理结果
+  if (thinking) {
+    console.log('[MARKDOWN-DEBUG] Using reasoningContent field, length:', thinking.length)
+    console.log('[MARKDOWN-DEBUG] Reasoning (first 200 chars):', thinking.slice(0, 200))
+  }
 
   // 提取链接用于预览
   const links = extractLinks(content)
@@ -569,7 +596,7 @@ export function MarkdownMessage({ content, isStreaming = false }: MarkdownMessag
 
   return (
     <div className="markdown-message">
-      {thinking && <ThinkingBlock content={thinking} />}
+      {thinking && <ThinkingBlock content={thinking} isStreaming={isStreaming} />}
       {previewLinks.map((url, index) => (
         <LinkPreviewCard key={index} url={url} />
       ))}

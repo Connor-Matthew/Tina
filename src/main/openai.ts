@@ -118,16 +118,26 @@ function formatMessageContent(message: ChatMessage): string {
 
 interface StreamDelta {
   choices?: Array<{
-    delta?: { content?: string }
+    delta?: {
+      content?: string | null
+      reasoning_content?: string | null
+    }
   }>
 }
+
+interface StreamChunk {
+  token: string
+  isReasoning: boolean
+}
+
+export { type StreamChunk }
 
 export async function* streamChatRequest(
   settings: ModelRequestSettings,
   messages: ChatMessage[],
   fetchImpl: FetchLike = fetch,
   signal?: AbortSignal,
-): AsyncGenerator<string, void, unknown> {
+): AsyncGenerator<StreamChunk, void, unknown> {
   if (!settings.apiKey.trim()) {
     throw new Error('API key is required before sending a message.')
   }
@@ -173,13 +183,30 @@ export async function* streamChatRequest(
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const payload = trimmed.slice(6)
-        if (payload === '[DONE]') return
+
+        // Debug: 输出原始 SSE payload
+        console.log('[STREAM-RAW] Received SSE payload:', payload)
+
+        if (payload === '[DONE]') {
+          console.log('[STREAM-RAW] Stream ended with [DONE]')
+          return
+        }
+
         try {
           const parsed = JSON.parse(payload) as StreamDelta
-          const content = parsed.choices?.[0]?.delta?.content
-          if (content) yield content
-        } catch {
-          // skip malformed JSON lines
+          console.log('[STREAM-RAW] Parsed delta:', JSON.stringify(parsed))
+
+          const delta = parsed.choices?.[0]?.delta
+          if (delta?.reasoning_content) {
+            console.log('[STREAM-RAW] Found reasoning_content:', JSON.stringify(delta.reasoning_content))
+            yield { token: delta.reasoning_content, isReasoning: true }
+          }
+          if (delta?.content) {
+            console.log('[STREAM-RAW] Found content:', JSON.stringify(delta.content))
+            yield { token: delta.content, isReasoning: false }
+          }
+        } catch (error) {
+          console.log('[STREAM-RAW] Failed to parse JSON:', error)
         }
       }
     }

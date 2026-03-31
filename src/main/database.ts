@@ -22,6 +22,7 @@ interface MessageRecord {
   created_at: string
   id: string
   role: ChatMessage['role']
+  reasoning_content: string | null
 }
 
 interface LegacySettingsRecord {
@@ -212,7 +213,8 @@ export class AppDatabase {
 
     this.migrateLegacySettingsTable()
     this.migrateAppPreferencesColumns()
-    this.database.exec('PRAGMA user_version = 2')
+    this.migrateMessagesReasoningColumn()
+    this.database.exec('PRAGMA user_version = 3')
   }
 
   close(): void {
@@ -251,6 +253,15 @@ export class AppDatabase {
       }
     }
   }
+
+  private migrateMessagesReasoningColumn(): void {
+    try {
+      this.database.exec(`ALTER TABLE messages ADD COLUMN reasoning_content TEXT DEFAULT NULL`)
+    } catch {
+      // column already exists
+    }
+  }
+
   private migrateLegacySettingsTable(): void {
     if (this.hasProviderCatalog() || !this.tableExists('settings')) {
       return
@@ -547,7 +558,7 @@ export class AppDatabase {
 
     const messages = this.database
       .prepare(`
-        SELECT id, conversation_id, role, content, attachments_json, created_at
+        SELECT id, conversation_id, role, content, attachments_json, reasoning_content, created_at
         FROM messages
         ORDER BY created_at ASC, id ASC
       `)
@@ -563,6 +574,7 @@ export class AppDatabase {
         id: message.id,
         role: message.role,
         content: message.content,
+        ...(message.reasoning_content ? { reasoningContent: message.reasoning_content } : {}),
         ...(attachments ? { attachments } : {}),
       })
       messagesByConversation.set(message.conversation_id, bucket)
@@ -663,8 +675,8 @@ export class AppDatabase {
 
     this.database
       .prepare(`
-        INSERT INTO messages (id, conversation_id, role, content, attachments_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, conversation_id, role, content, attachments_json, reasoning_content, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         message.id,
@@ -672,6 +684,7 @@ export class AppDatabase {
         message.role,
         message.content,
         serializeAttachments(message.attachments),
+        message.reasoningContent ?? null,
         timestamp,
       )
 
