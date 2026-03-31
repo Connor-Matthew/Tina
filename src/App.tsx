@@ -270,10 +270,38 @@ function App() {
   )
 
   async function handleSend(submission: ChatComposerSubmission) {
+    // Debug log: 记录发送请求
+    console.log('[APP-DEBUG] handleSend called, submission:', JSON.stringify({
+      content: submission.content.slice(0, 100),
+      attachmentsCount: submission.attachments.length
+    }))
+
     await chatStore.getState().streamMessage(
       submission,
-      (messages, onToken, onError, onEnd) =>
-        desktop.streamChat(messages, onToken, onError, onEnd),
+      (messages, onToken, onError, onEnd) => {
+        // Debug log: 记录回调被调用
+        console.log('[APP-DEBUG] streamFromModel callback invoked, messages count:', messages.length)
+
+        // 包装 onToken 回调以添加日志
+        const wrappedOnToken = (token: string, isReasoning?: boolean) => {
+          console.log('[APP-DEBUG] onToken called, token length:', token.length, 'isReasoning:', isReasoning)
+          onToken(token, isReasoning)
+        }
+
+        // 包装 onError 回调以添加日志
+        const wrappedOnError = (error: string) => {
+          console.log('[APP-DEBUG] onError called:', error)
+          onError(error)
+        }
+
+        // 包装 onEnd 回调以添加日志
+        const wrappedOnEnd = () => {
+          console.log('[APP-DEBUG] onEnd called')
+          onEnd()
+        }
+
+        return desktop.streamChat(messages, wrappedOnToken, wrappedOnError, wrappedOnEnd)
+      },
     )
   }
 

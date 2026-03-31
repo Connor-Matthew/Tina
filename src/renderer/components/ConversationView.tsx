@@ -74,6 +74,16 @@ export function ConversationView({
         {conversation.messages.map((message, index) => {
           const isLastAssistantMessage =
             isSending && message.role === 'assistant' && index === conversation.messages.length - 1
+
+          // Debug log: 记录每条消息
+          if (message.role === 'assistant' && message.reasoningContent) {
+            console.log('[CONVERSATION-DEBUG] Assistant message with reasoning:', {
+              messageId: message.id,
+              reasoningLength: message.reasoningContent.length,
+              isStreaming: isSending && isLastAssistantMessage
+            })
+          }
+
           return (
             <article
               key={message.id}
@@ -139,12 +149,12 @@ export function ConversationView({
                     </button>
                   </div>
                 </form>
-              ) : isSending && isLastAssistantMessage && !message.content ? (
+              ) : isSending && isLastAssistantMessage && !message.content && !message.reasoningContent ? (
                 <div className="message__bubble message__bubble--thinking" />
-              ) : isSending && isLastAssistantMessage && message.content ? (
+              ) : isSending && isLastAssistantMessage && (message.content || message.reasoningContent) ? (
                 <div className="message__bubble">
                   {message.role === 'assistant' ? (
-                    <MarkdownMessage content={message.content} isStreaming />
+                    <MarkdownMessage content={message.content} reasoningContent={message.reasoningContent} isStreaming />
                   ) : (
                     <>
                       {message.content}
@@ -152,10 +162,10 @@ export function ConversationView({
                     </>
                   )}
                 </div>
-              ) : message.content ? (
+              ) : message.content || message.reasoningContent ? (
                 <div className="message__bubble">
                   {message.role === 'assistant' ? (
-                    <MarkdownMessage content={message.content} />
+                    <MarkdownMessage content={message.content} reasoningContent={message.reasoningContent} />
                   ) : (
                     message.content
                   )}
