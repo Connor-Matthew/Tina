@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 
 import type { AppSettings, ProviderModelSettings, ProviderSettings } from '../shared/contracts'
@@ -49,8 +48,6 @@ export const defaultSettings: AppSettings = {
     frequencyPenalty: 0,
   },
 }
-
-const require = createRequire(import.meta.url)
 
 export interface LegacySettingsStore {
   get(): Partial<LegacyAppSettings> | undefined

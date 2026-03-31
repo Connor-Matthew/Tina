@@ -1,19 +1,18 @@
 import { app, BrowserWindow } from 'electron'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import { registerIpcHandlers } from './ipc'
 import { createWindowOptions } from './windowConfig'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
 function createMainWindow(): BrowserWindow {
-  const window = new BrowserWindow(createWindowOptions(__dirname))
+  const window = new BrowserWindow(
+    createWindowOptions(app.getAppPath()),
+  )
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void window.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
-    void window.loadFile(join(__dirname, '../index.html'))
+    void window.loadFile(join(app.getAppPath(), 'dist/index.html'))
   }
 
   return window

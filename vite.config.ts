@@ -12,9 +12,30 @@ export default defineConfig({
     electron({
       main: {
         entry: 'src/main/index.ts',
+        vite: {
+          build: {
+            target: 'node18',
+            lib: {
+              entry: 'src/main/index.ts',
+              formats: ['cjs'],
+              fileName: () => 'index.cjs',
+            },
+          },
+        },
       },
       preload: {
         input: 'src/preload/index.ts',
+        vite: {
+          build: {
+            target: 'node18',
+            rollupOptions: {
+              output: {
+                format: 'cjs',
+                entryFileNames: 'preload.cjs',
+              },
+            },
+          },
+        },
       },
     }),
   ],
