@@ -13,6 +13,14 @@ export interface LegacyAppSettings {
 export const defaultProviderId = 'provider-openai'
 export const defaultModelId = 'model-openai-gpt-4o-mini'
 
+const defaultAppearanceSettings = {
+  theme: 'system' as const,
+  fontSize: 'medium' as const,
+  codeBlockTheme: 'github' as const,
+  showLineNumbers: true,
+  wordWrap: false,
+}
+
 export const defaultSettings: AppSettings = {
   providers: [
     {
@@ -46,6 +54,7 @@ export const defaultSettings: AppSettings = {
     topP: 1.0,
     presencePenalty: 0,
     frequencyPenalty: 0,
+    appearance: defaultAppearanceSettings,
   },
 }
 
@@ -130,6 +139,7 @@ export function createSettingsFromLegacy(
       topP: 1.0,
       presencePenalty: 0,
       frequencyPenalty: 0,
+      appearance: defaultAppearanceSettings,
     },
   }
 }
@@ -184,6 +194,8 @@ export function normalizeAppSettings(settings: AppSettings): AppSettings {
     ? settings.preferences.defaultModelId
     : providerModels[0]?.id ?? null
 
+  const defaultAppearance = defaultSettings.preferences.appearance!
+
   return {
     providers,
     models,
@@ -196,6 +208,13 @@ export function normalizeAppSettings(settings: AppSettings): AppSettings {
       presencePenalty: settings.preferences.presencePenalty ?? 0,
       frequencyPenalty: settings.preferences.frequencyPenalty ?? 0,
       maxTokens: settings.preferences.maxTokens,
+      appearance: {
+        theme: settings.preferences.appearance?.theme ?? defaultAppearance.theme,
+        fontSize: settings.preferences.appearance?.fontSize ?? defaultAppearance.fontSize,
+        codeBlockTheme: settings.preferences.appearance?.codeBlockTheme ?? defaultAppearance.codeBlockTheme,
+        showLineNumbers: settings.preferences.appearance?.showLineNumbers ?? defaultAppearance.showLineNumbers,
+        wordWrap: settings.preferences.appearance?.wordWrap ?? defaultAppearance.wordWrap,
+      },
     },
   }
 }

@@ -144,6 +144,11 @@ var AppDatabase = class {
         presence_penalty REAL DEFAULT 0,
         frequency_penalty REAL DEFAULT 0,
         max_tokens INTEGER,
+        theme TEXT DEFAULT 'system',
+        font_size TEXT DEFAULT 'medium',
+        code_block_theme TEXT DEFAULT 'github',
+        show_line_numbers INTEGER DEFAULT 1,
+        word_wrap INTEGER DEFAULT 0,
         FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
         FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
       );
@@ -193,21 +198,59 @@ var AppDatabase = class {
 		return this.database.prepare("SELECT COUNT(*) as count FROM providers").get().count > 0;
 	}
 	migrateAppPreferencesColumns() {
-		const columns = [
-			"temperature",
-			"top_p",
-			"presence_penalty",
-			"frequency_penalty",
-			"max_tokens"
-		];
-		const defaults = {
-			temperature: "1.0",
-			top_p: "1.0",
-			presence_penalty: "0",
-			frequency_penalty: "0"
-		};
-		for (const column of columns) try {
-			this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column} ${column === "max_tokens" ? "INTEGER" : "REAL"} DEFAULT ${defaults[column] ?? "NULL"}`);
+		for (const column of [
+			{
+				name: "temperature",
+				type: "REAL",
+				default: "1.0"
+			},
+			{
+				name: "top_p",
+				type: "REAL",
+				default: "1.0"
+			},
+			{
+				name: "presence_penalty",
+				type: "REAL",
+				default: "0"
+			},
+			{
+				name: "frequency_penalty",
+				type: "REAL",
+				default: "0"
+			},
+			{
+				name: "max_tokens",
+				type: "INTEGER",
+				default: "NULL"
+			},
+			{
+				name: "theme",
+				type: "TEXT",
+				default: "'system'"
+			},
+			{
+				name: "font_size",
+				type: "TEXT",
+				default: "'medium'"
+			},
+			{
+				name: "code_block_theme",
+				type: "TEXT",
+				default: "'github'"
+			},
+			{
+				name: "show_line_numbers",
+				type: "INTEGER",
+				default: "1"
+			},
+			{
+				name: "word_wrap",
+				type: "INTEGER",
+				default: "0"
+			}
+		]) try {
+			this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column.name} ${column.type} DEFAULT ${column.default}`);
 		} catch {}
 	}
 	migrateMessagesReasoningColumn() {
@@ -295,7 +338,7 @@ var AppDatabase = class {
         ORDER BY provider_model_id ASC, rowid ASC
       `).all();
 		const preferences = this.database.prepare(`
-        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens
+        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens, theme, font_size, code_block_theme, show_line_numbers, word_wrap
         FROM app_preferences
         WHERE id = 1
       `).get();
@@ -336,7 +379,14 @@ var AppDatabase = class {
 				topP: preferences?.top_p ?? 1,
 				presencePenalty: preferences?.presence_penalty ?? 0,
 				frequencyPenalty: preferences?.frequency_penalty ?? 0,
-				maxTokens: preferences?.max_tokens ?? void 0
+				maxTokens: preferences?.max_tokens ?? void 0,
+				appearance: {
+					theme: preferences?.theme ?? "system",
+					fontSize: preferences?.font_size ?? "medium",
+					codeBlockTheme: preferences?.code_block_theme ?? "github",
+					showLineNumbers: preferences?.show_line_numbers === 1,
+					wordWrap: preferences?.word_wrap === 1
+				}
 			}
 		};
 	}
@@ -391,9 +441,9 @@ var AppDatabase = class {
 				for (const capability of model.capabilities) insertCapability.run(model.id, capability);
 			}
 			this.database.prepare(`
-          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt, settings.preferences.temperature ?? 1, settings.preferences.topP ?? 1, settings.preferences.presencePenalty ?? 0, settings.preferences.frequencyPenalty ?? 0, settings.preferences.maxTokens ?? null);
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens, theme, font_size, code_block_theme, show_line_numbers, word_wrap)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt, settings.preferences.temperature ?? 1, settings.preferences.topP ?? 1, settings.preferences.presencePenalty ?? 0, settings.preferences.frequencyPenalty ?? 0, settings.preferences.maxTokens ?? null, settings.preferences.appearance?.theme ?? "system", settings.preferences.appearance?.fontSize ?? "medium", settings.preferences.appearance?.codeBlockTheme ?? "github", settings.preferences.appearance?.showLineNumbers === true ? 1 : 0, settings.preferences.appearance?.wordWrap === true ? 1 : 0);
 		});
 	}
 	listConversations() {
@@ -15041,6 +15091,13 @@ var init_electron_store = __esmMin((() => {
 //#region src/main/settings.ts
 var defaultProviderId = "provider-openai";
 var defaultModelId = "model-openai-gpt-4o-mini";
+var defaultAppearanceSettings = {
+	theme: "system",
+	fontSize: "medium",
+	codeBlockTheme: "github",
+	showLineNumbers: true,
+	wordWrap: false
+};
 var defaultSettings = {
 	providers: [{
 		id: defaultProviderId,
@@ -15069,7 +15126,8 @@ var defaultSettings = {
 		temperature: 1,
 		topP: 1,
 		presencePenalty: 0,
-		frequencyPenalty: 0
+		frequencyPenalty: 0,
+		appearance: defaultAppearanceSettings
 	}
 };
 function normalizeBaseUrl(baseUrl) {
@@ -15135,7 +15193,8 @@ function createSettingsFromLegacy(partial) {
 			temperature: 1,
 			topP: 1,
 			presencePenalty: 0,
-			frequencyPenalty: 0
+			frequencyPenalty: 0,
+			appearance: defaultAppearanceSettings
 		}
 	};
 }
@@ -15176,18 +15235,27 @@ function normalizeAppSettings(settings) {
 	}
 	const defaultProviderId = providerIds.has(settings.preferences.defaultProviderId ?? "") ? settings.preferences.defaultProviderId : providers[0]?.id ?? null;
 	const providerModels = defaultProviderId ? modelsByProvider.get(defaultProviderId) ?? [] : [];
+	const defaultModelId = providerModels.some((model) => model.id === settings.preferences.defaultModelId) ? settings.preferences.defaultModelId : providerModels[0]?.id ?? null;
+	const defaultAppearance = defaultSettings.preferences.appearance;
 	return {
 		providers,
 		models,
 		preferences: {
 			defaultProviderId,
-			defaultModelId: providerModels.some((model) => model.id === settings.preferences.defaultModelId) ? settings.preferences.defaultModelId : providerModels[0]?.id ?? null,
+			defaultModelId,
 			systemPrompt: settings.preferences.systemPrompt ?? "",
 			temperature: settings.preferences.temperature ?? 1,
 			topP: settings.preferences.topP ?? 1,
 			presencePenalty: settings.preferences.presencePenalty ?? 0,
 			frequencyPenalty: settings.preferences.frequencyPenalty ?? 0,
-			maxTokens: settings.preferences.maxTokens
+			maxTokens: settings.preferences.maxTokens,
+			appearance: {
+				theme: settings.preferences.appearance?.theme ?? defaultAppearance.theme,
+				fontSize: settings.preferences.appearance?.fontSize ?? defaultAppearance.fontSize,
+				codeBlockTheme: settings.preferences.appearance?.codeBlockTheme ?? defaultAppearance.codeBlockTheme,
+				showLineNumbers: settings.preferences.appearance?.showLineNumbers ?? defaultAppearance.showLineNumbers,
+				wordWrap: settings.preferences.appearance?.wordWrap ?? defaultAppearance.wordWrap
+			}
 		}
 	};
 }

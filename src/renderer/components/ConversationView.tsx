@@ -40,18 +40,51 @@ export function ConversationView({
   if (!conversation || conversation.messages.length === 0) {
     return (
       <section className="conversation conversation--empty">
-        <header className="conversation__header">
-          <div>
-            <p className="conversation__kicker">Welcome</p>
-            <h2>{conversation?.title ?? 'Start a new conversation'}</h2>
+        <div className="welcome">
+          <div className="welcome__brand">
+            <div className="welcome__logo">
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="48" height="48" rx="12" fill="url(#tina-gradient)"/>
+                <path d="M14 18h20v3H14v-3zm0 9h14v3H14v-3z" fill="white" fillOpacity="0.9"/>
+                <defs>
+                  <linearGradient id="tina-gradient" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#6366f1"/>
+                    <stop offset="1" stopColor="#8b5cf6"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <h1 className="welcome__title">Tina</h1>
+            <p className="welcome__subtitle">Your AI Assistant</p>
           </div>
-          <button className="conversation__settings" onClick={onOpenSettings}>
-            Settings
-          </button>
-        </header>
 
-        <div className="conversation__welcome">
-          <h3>What would you like to chat about?</h3>
+          <div className="welcome__content">
+            <h2 className="welcome__heading">How can I help you today?</h2>
+            <p className="welcome__description">
+              I'm here to assist with coding, writing, analysis, and creative tasks.
+              Start a conversation below to begin.
+            </p>
+          </div>
+
+          <div className="welcome__suggestions">
+            <div className="welcome__suggestion">
+              <span className="welcome__suggestion-icon">💡</span>
+              <span>Help me write code</span>
+            </div>
+            <div className="welcome__suggestion">
+              <span className="welcome__suggestion-icon">📝</span>
+              <span>Draft a document</span>
+            </div>
+            <div className="welcome__suggestion">
+              <span className="welcome__suggestion-icon">🔍</span>
+              <span>Analyze data</span>
+            </div>
+            <div className="welcome__suggestion">
+              <span className="welcome__suggestion-icon">🎨</span>
+              <span>Creative writing</span>
+            </div>
+          </div>
+
           {error ? <p className="conversation__error">{error}</p> : null}
         </div>
       </section>

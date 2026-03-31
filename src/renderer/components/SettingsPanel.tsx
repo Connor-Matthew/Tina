@@ -1,4 +1,4 @@
-import type { AppSettings, ProviderModelSettings, ProviderPresetKey, ProviderSettings } from '../../shared/contracts'
+import type { AppSettings, AppearanceSettings, ProviderModelSettings, ProviderPresetKey, ProviderSettings } from '../../shared/contracts'
 import { getPresetByKey, providerPresets } from '../../shared/contracts'
 import { useState } from 'react'
 import type { SettingsNavTab } from './Sidebar'
@@ -8,13 +8,13 @@ interface SettingsPanelProps {
   activeProviderId: string | null
   detectedModels: string[]
   selectedDetectedModels: Set<string>
-  hasUnsavedChanges: boolean
   isDetectingModels: boolean
   isTestingConnection: boolean
-  connectionTestResult: { success: boolean; message: string } | null
+  connectionTestResult: { success: boolean; message: string; latencyMs?: number } | null
   modelDetectionError: string | null
   providerModels: ProviderModelSettings[]
   settings: AppSettings
+  hasUnsavedChanges: boolean
   onAddProvider: () => void
   onDeleteProvider: (providerId: string) => void
   onDeleteModel: (modelId: string) => void
@@ -24,6 +24,7 @@ interface SettingsPanelProps {
   onSave: () => Promise<void>
   onSelectProvider: (providerId: string) => void
   onSetDefaultProvider: () => void
+  onSetDefaultModel: (modelId: string) => void
   onTestConnection: () => Promise<void>
   onToggleDetectedModel: (modelKey: string) => void
   onToggleAllDetectedModels: (selected: boolean) => void
@@ -34,6 +35,27 @@ interface SettingsPanelProps {
   onUpdateProviderPreset: (presetKey: ProviderPresetKey) => void
   onUpdateSystemPrompt: (value: string) => void
   onUpdateChatParam: (field: 'temperature' | 'topP' | 'presencePenalty' | 'frequencyPenalty' | 'maxTokens', value: string) => void
+  onUpdateAppearance: (updates: Partial<AppearanceSettings>) => void
+}
+
+function capabilityLabel(cap: string): string {
+  switch (cap) {
+    case 'text': return 'Text'
+    case 'image': return 'Image'
+    case 'audio': return 'Audio'
+    case 'video': return 'Video'
+    case 'reasoning': return 'Reasoning'
+    case 'tools': return 'Tools'
+    case 'embedding': return 'Embedding'
+    default: return cap
+  }
+}
+
+function formatContextWindow(window?: number): string {
+  if (!window) return ''
+  if (window >= 1_000_000) return `${(window / 1_000_000).toFixed(0)}M context`
+  if (window >= 1_000) return `${(window / 1_000).toFixed(0)}K context`
+  return `${window} context`
 }
 
 function getConnectionBadge(provider: ProviderSettings | undefined, detectedCount: number): {
@@ -55,7 +77,6 @@ export function SettingsPanel({
   activeProviderId,
   detectedModels,
   selectedDetectedModels,
-  hasUnsavedChanges,
   isDetectingModels,
   isTestingConnection,
   connectionTestResult,
@@ -71,6 +92,7 @@ export function SettingsPanel({
   onSave,
   onSelectProvider,
   onSetDefaultProvider,
+  onSetDefaultModel,
   onTestConnection,
   onToggleDetectedModel,
   onToggleAllDetectedModels,
@@ -78,9 +100,12 @@ export function SettingsPanel({
   onUpdateProviderPreset,
   onUpdateSystemPrompt,
   onUpdateChatParam,
+  onUpdateAppearance,
+  hasUnsavedChanges,
 }: SettingsPanelProps) {
   const [showApiKey, setShowApiKey] = useState(false)
   const [manualModelInput, setManualModelInput] = useState('')
+  const [providerSearch, setProviderSearch] = useState('')
 
   const activeProvider = settings.providers.find((provider) => provider.id === activeProviderId)
   const currentPresetKey: ProviderPresetKey = activeProvider
@@ -91,44 +116,155 @@ export function SettingsPanel({
     : 0
   const activeProviderBadge = getConnectionBadge(activeProvider, activeProviderModelCount)
   const allSelected = detectedModels.length > 0 && detectedModels.every(m => selectedDetectedModels.has(m))
+  const filteredProviders = providerSearch.trim()
+    ? settings.providers.filter(
+        (p) =>
+          p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
+          p.baseUrl.toLowerCase().includes(providerSearch.toLowerCase()),
+      )
+    : settings.providers
 
   return (
     <section className="settings-page">
       <div className="settings-page__content">
-        <div className="settings-detail__topbar" aria-label="Settings status rail">
-          <div className="settings-detail__summary">
-            <div className="settings-detail__summary-item">
-              <span className="settings-detail__summary-label">Save state</span>
-              <strong>{hasUnsavedChanges ? 'Unsaved' : 'Synced'}</strong>
-            </div>
-          </div>
-
-          <button className="settings-panel__save" onClick={() => void onSave()}>
-            Save settings
-          </button>
-        </div>
-
         <main className="settings-detail">
           {activeSettingsTab === 'general' && (
             <div className="settings-detail__panel" role="tabpanel">
               <div className="settings-section__form-card settings-preferences-panel">
                 <div className="settings-section__card-head">
                   <div>
-                    <h3>Behavior</h3>
-                    <p>Define a default instruction layer applied before each request.</p>
+                    <h3>行为</h3>
+                    <p>定义每次请求前应用的默认指令。</p>
                   </div>
                 </div>
 
                 <label>
-                  <span>System Prompt</span>
+                  <span>系统提示词</span>
                   <textarea
-                    aria-label="System Prompt"
+                    aria-label="系统提示词"
                     value={settings.preferences.systemPrompt}
                     onChange={(event) => onUpdateSystemPrompt(event.target.value)}
                     rows={12}
-                    placeholder="Enter a system prompt that model should follow by default"
+                    placeholder="输入模型应默认遵循的系统提示词"
                   />
                 </label>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'appearance' && (
+            <div className="settings-detail__panel" role="tabpanel">
+              <div className="settings-appearance-panel">
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>主题</h3>
+                      <p>选择适合你的界面主题。</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-appearance-options">
+                    {[
+                      { key: 'light', label: '浅色', icon: (
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <circle cx="12" cy="12" r="5"/>
+                          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                        </svg>
+                      )},
+                      { key: 'dark', label: '深色', icon: (
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                        </svg>
+                      )},
+                      { key: 'system', label: '跟随系统', icon: (
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <rect x="2" y="3" width="20" height="14" rx="2"/>
+                          <line x1="8" x2="16" y1="21" y2="21"/>
+                          <line x1="12" x2="12" y1="17" y2="21"/>
+                        </svg>
+                      )},
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`settings-appearance-option${settings.preferences.appearance?.theme === option.key ? ' settings-appearance-option--active' : ''}`}
+                        onClick={() => onUpdateAppearance({ theme: option.key as AppearanceSettings['theme'] })}
+                      >
+                        <div className="settings-appearance-option__icon">{option.icon}</div>
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>字体大小</h3>
+                      <p>调整界面文字大小。</p>
+                    </div>
+                  </div>
+
+                  <div className="settings-appearance-options">
+                    {[
+                      { key: 'small', label: '小' },
+                      { key: 'medium', label: '中' },
+                      { key: 'large', label: '大' },
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`settings-appearance-option${settings.preferences.appearance?.fontSize === option.key ? ' settings-appearance-option--active' : ''}`}
+                        onClick={() => onUpdateAppearance({ fontSize: option.key as AppearanceSettings['fontSize'] })}
+                      >
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>代码块样式</h3>
+                      <p>选择代码高亮主题。</p>
+                    </div>
+                  </div>
+
+                  <label className="settings-select-field">
+                    <span>主题</span>
+                    <select
+                      value={settings.preferences.appearance?.codeBlockTheme ?? 'github'}
+                      onChange={(e) => onUpdateAppearance({ codeBlockTheme: e.target.value as AppearanceSettings['codeBlockTheme'] })}
+                    >
+                      <option value="github">GitHub</option>
+                      <option value="monokai">Monokai</option>
+                      <option value="dracula">Dracula</option>
+                      <option value="one-dark">One Dark</option>
+                      <option value="atom-one-light">Atom One Light</option>
+                    </select>
+                  </label>
+
+                  <div className="settings-appearance-toggles">
+                    <label className="settings-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.preferences.appearance?.showLineNumbers ?? true}
+                        onChange={(e) => onUpdateAppearance({ showLineNumbers: e.target.checked })}
+                      />
+                      <span>显示行号</span>
+                    </label>
+
+                    <label className="settings-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settings.preferences.appearance?.wordWrap ?? false}
+                        onChange={(e) => onUpdateAppearance({ wordWrap: e.target.checked })}
+                      />
+                      <span>自动换行</span>
+                    </label>
+                  </div>
+                </section>
               </div>
             </div>
           )}
@@ -139,12 +275,24 @@ export function SettingsPanel({
                 <div className="settings-section__card settings-providers-list-card">
                   <div className="settings-providers-list-header">
                     <h3>Providers</h3>
-                    <button className="settings-section__secondary-action" onClick={onAddProvider} type="button">
-                      Add provider
-                    </button>
+                    <div className="settings-providers-list-header__actions">
+                      <button className="settings-panel__save" onClick={() => void onSave()}>
+                        Save{hasUnsavedChanges && <span className="settings-panel__save-indicator" />}
+                      </button>
+                      <button className="settings-section__secondary-action" onClick={onAddProvider} type="button">
+                        Add
+                      </button>
+                    </div>
                   </div>
+                  <input
+                    className="settings-provider-search"
+                    type="text"
+                    placeholder="Filter providers..."
+                    value={providerSearch}
+                    onChange={(e) => setProviderSearch(e.target.value)}
+                  />
                   <div className="settings-providers-list" role="list">
-                    {settings.providers.map((provider) => {
+                    {filteredProviders.map((provider) => {
                       const isActive = provider.id === activeProvider?.id
                       const isDefault = provider.id === settings.preferences.defaultProviderId
                       const badge = getConnectionBadge(
@@ -172,6 +320,9 @@ export function SettingsPanel({
                       )
                     })}
                   </div>
+                  {providerSearch.trim() && filteredProviders.length === 0 && (
+                    <p className="settings-providers-list__empty">No providers match "{providerSearch}"</p>
+                  )}
                 </div>
 
                 {activeProvider ? (
@@ -286,6 +437,9 @@ export function SettingsPanel({
                         {connectionTestResult && (
                           <span className={`settings-detail__test-result settings-detail__test-result--${connectionTestResult.success ? 'success' : 'error'}`}>
                             {connectionTestResult.message}
+                            {connectionTestResult.success && connectionTestResult.latencyMs !== undefined && (
+                              <span className="settings-detail__test-latency"> ({connectionTestResult.latencyMs}ms)</span>
+                            )}
                           </span>
                         )}
                       </div>
@@ -294,8 +448,8 @@ export function SettingsPanel({
                     <div className="settings-section__form-card">
                       <div className="settings-section__card-head">
                         <div>
-                          <h3>Role & Safety</h3>
-                          <p>Set which vendor is used by default, and manage destructive actions separately.</p>
+                          <h3>Provider Options</h3>
+                          <p>Manage which vendor is used by default, and remove entries you no longer need.</p>
                         </div>
                       </div>
 
@@ -349,14 +503,39 @@ export function SettingsPanel({
                         <div className="settings-models-list">
                           {providerModels.map((model) => {
                             const isDefault = model.id === settings.preferences.defaultModelId
+                            const ctxLabel = formatContextWindow(model.contextWindow)
                             return (
                               <div key={model.id} className="settings-model-item-inline">
                                 <div className="settings-model-item-inline__info">
-                                  <span className="settings-model-item-inline__name">
-                                    {model.displayName}
+                                  <div className="settings-model-item-inline__name-row">
+                                    <span className="settings-model-item-inline__name">
+                                      {model.displayName}
+                                    </span>
                                     {isDefault && <span className="settings-model-item-inline__badge">Default</span>}
-                                  </span>
-                                  <span className="settings-model-item-inline__key">{model.modelKey}</span>
+                                    {!isDefault && (
+                                      <button
+                                        className="settings-model-item-inline__set-default"
+                                        onClick={() => onSetDefaultModel(model.id)}
+                                        type="button"
+                                        title="Set as default"
+                                      >
+                                        Set default
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="settings-model-item-inline__meta">
+                                    <span className="settings-model-item-inline__key">{model.modelKey}</span>
+                                    {ctxLabel && (
+                                      <span className="settings-model-item-inline__context">{ctxLabel}</span>
+                                    )}
+                                  </div>
+                                  {model.capabilities.length > 0 && (
+                                    <div className="settings-model-item-inline__caps">
+                                      {model.capabilities.map((cap) => (
+                                        <span key={cap} className="settings-model-item-inline__cap">{capabilityLabel(cap)}</span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                                 <button
                                   className="settings-model-item-inline__delete"
@@ -471,99 +650,158 @@ export function SettingsPanel({
                 <section className="settings-section__form-card">
                   <div className="settings-section__card-head">
                     <div>
-                      <h3>Temperature &amp; Output</h3>
-                      <p>Control randomness and length of model responses.</p>
+                      <h3>回复质量</h3>
+                      <p>控制模型回复的创造性和长度。</p>
                     </div>
                   </div>
 
-                  <div className="settings-slider-group">
-                    <div className="settings-slider-group__header">
-                      <span className="settings-slider-group__label">Temperature</span>
-                      <span className="settings-slider-group__value">{settings.preferences.temperature ?? 1.0}</span>
+                  <div className="settings-param-row">
+                    <label className="settings-param-row__label">
+                      <span>温度</span>
+                      <input
+                        type="number"
+                        aria-label="Temperature"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={settings.preferences.temperature ?? 1.0}
+                        onChange={(e) => onUpdateChatParam('temperature', e.target.value)}
+                        className="settings-chat-number-input"
+                      />
+                    </label>
+                    <div className="settings-param-presets">
+                      {[
+                        { label: '精确', value: '0.2' },
+                        { label: '平衡', value: '0.7' },
+                        { label: '创意', value: '1.2' },
+                      ].map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          className={`settings-param-preset-chip${String(settings.preferences.temperature ?? 1.0) === p.value ? ' settings-param-preset-chip--active' : ''}`}
+                          onClick={() => onUpdateChatParam('temperature', p.value)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={settings.preferences.temperature ?? 1.0}
-                      onChange={(e) => onUpdateChatParam('temperature', e.target.value)}
-                      className="settings-slider"
-                    />
-                    <div className="settings-slider-group__hint">Higher values make output more random; lower values make it more deterministic.</div>
                   </div>
 
-                  <label className="settings-chat-param-label">
-                    <span>Max Tokens</span>
+                  <label className="settings-param-field">
+                    <span>最大 Token 数</span>
                     <input
                       type="number"
-                      aria-label="Max Tokens"
+                      aria-label="最大 Token 数"
+                      min="1"
                       value={settings.preferences.maxTokens ?? ''}
                       onChange={(e) => onUpdateChatParam('maxTokens', e.target.value)}
-                      placeholder="No limit"
+                      placeholder="无限制"
                       className="settings-chat-number-input"
                     />
+                    <span className="settings-param-field__hint">回复的最大 token 数量，留空表示不限制。</span>
                   </label>
                 </section>
 
                 <section className="settings-section__form-card">
                   <div className="settings-section__card-head">
                     <div>
-                      <h3>Penalty Settings</h3>
-                      <p>Advanced parameters to penalize repetition and guide model behavior.</p>
+                      <h3>多样性与重复控制</h3>
+                      <p>调整 token 选择策略，减少重复内容。</p>
                     </div>
                   </div>
 
-                  <div className="settings-slider-group">
-                    <div className="settings-slider-group__header">
-                      <span className="settings-slider-group__label">Top P</span>
-                      <span className="settings-slider-group__value">{settings.preferences.topP ?? 1.0}</span>
-                    </div>
+                  <label className="settings-param-field">
+                    <span>Top P</span>
                     <input
-                      type="range"
+                      type="number"
+                      aria-label="Top P"
                       min="0"
                       max="1"
                       step="0.05"
                       value={settings.preferences.topP ?? 1.0}
                       onChange={(e) => onUpdateChatParam('topP', e.target.value)}
-                      className="settings-slider"
+                      className="settings-chat-number-input"
                     />
-                    <div className="settings-slider-group__hint">Controls diversity via nucleus sampling. Use lower values to limit token selection.</div>
-                  </div>
+                    <span className="settings-param-field__hint">核采样阈值。数值越小，token 选择范围越集中。</span>
+                  </label>
 
-                  <div className="settings-slider-group">
-                    <div className="settings-slider-group__header">
-                      <span className="settings-slider-group__label">Presence Penalty</span>
-                      <span className="settings-slider-group__value">{settings.preferences.presencePenalty ?? 0}</span>
-                    </div>
+                  <label className="settings-param-field">
+                    <span>存在惩罚</span>
                     <input
-                      type="range"
+                      type="number"
+                      aria-label="存在惩罚"
                       min="-2"
                       max="2"
                       step="0.1"
                       value={settings.preferences.presencePenalty ?? 0}
                       onChange={(e) => onUpdateChatParam('presencePenalty', e.target.value)}
-                      className="settings-slider"
+                      className="settings-chat-number-input"
                     />
-                    <div className="settings-slider-group__hint">Increases penalty for tokens that have already appeared, encouraging the model to talk about new topics.</div>
-                  </div>
+                    <span className="settings-param-field__hint">对已出现的 token 进行惩罚，鼓励模型讨论新话题。</span>
+                  </label>
 
-                  <div className="settings-slider-group">
-                    <div className="settings-slider-group__header">
-                      <span className="settings-slider-group__label">Frequency Penalty</span>
-                      <span className="settings-slider-group__value">{settings.preferences.frequencyPenalty ?? 0}</span>
-                    </div>
+                  <label className="settings-param-field">
+                    <span>频率惩罚</span>
                     <input
-                      type="range"
+                      type="number"
+                      aria-label="频率惩罚"
                       min="-2"
                       max="2"
                       step="0.1"
                       value={settings.preferences.frequencyPenalty ?? 0}
                       onChange={(e) => onUpdateChatParam('frequencyPenalty', e.target.value)}
-                      className="settings-slider"
+                      className="settings-chat-number-input"
                     />
-                    <div className="settings-slider-group__hint">Decreases penalty for tokens proportional to their frequency in response, reducing repetition.</div>
+                    <span className="settings-param-field__hint">根据 token 出现频率进行惩罚，减少重复回复。</span>
+                  </label>
+                </section>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'shortcuts' && (
+            <div className="settings-detail__panel" role="tabpanel">
+              <div className="settings-shortcuts-panel">
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>快捷键</h3>
+                      <p>自定义键盘快捷键以提高效率。</p>
+                    </div>
                   </div>
+                  <p className="settings-section__helper">快捷键设置功能即将推出...</p>
+                </section>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'data' && (
+            <div className="settings-detail__panel" role="tabpanel">
+              <div className="settings-data-panel">
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>数据管理</h3>
+                      <p>导出、导入或清除你的数据。</p>
+                    </div>
+                  </div>
+                  <p className="settings-section__helper">数据管理功能即将推出...</p>
+                </section>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'advanced' && (
+            <div className="settings-detail__panel" role="tabpanel">
+              <div className="settings-advanced-panel">
+                <section className="settings-section__form-card">
+                  <div className="settings-section__card-head">
+                    <div>
+                      <h3>高级设置</h3>
+                      <p>配置高级选项。</p>
+                    </div>
+                  </div>
+                  <p className="settings-section__helper">高级设置功能即将推出...</p>
                 </section>
               </div>
             </div>
