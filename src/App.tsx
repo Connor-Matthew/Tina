@@ -79,6 +79,13 @@ const fallbackSettings: AppSettings = {
     topP: 1.0,
     presencePenalty: 0,
     frequencyPenalty: 0,
+    appearance: {
+      theme: 'system',
+      fontSize: 'medium',
+      codeBlockTheme: 'github',
+      showLineNumbers: true,
+      wordWrap: false,
+    },
   },
 }
 
@@ -88,10 +95,6 @@ function createProviderId() {
 
 function createModelId() {
   return `model-${crypto.randomUUID()}`
-}
-
-function areSettingsEqual(left: AppSettings, right: AppSettings) {
-  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function getProviderById(settings: AppSettings, providerId: string | null): ProviderSettings | undefined {
@@ -176,7 +179,6 @@ function App() {
   const [chatStore] = useState(() => createChatStore(desktop))
   const [chatState, setChatState] = useState(chatStore.getState())
   const [settings, setSettings] = useState<AppSettings>(fallbackSettings)
-  const [persistedSettings, setPersistedSettings] = useState<AppSettings>(fallbackSettings)
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
     fallbackSettings.preferences.defaultProviderId,
   )
@@ -187,11 +189,11 @@ function App() {
   const [modelDetectionErrors, setModelDetectionErrors] = useState<Record<string, string | null>>({})
   const [detectingProviderId, setDetectingProviderId] = useState<string | null>(null)
   const [testingConnectionProviderId, setTestingConnectionProviderId] = useState<string | null>(null)
-  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string; latencyMs?: number } | null>(null)
   const [view, setView] = useState<AppView>('chat')
-  const [searchValue, setSearchValue] = useState('')
   const [settingsTab, setSettingsTab] = useState<SettingsNavTab>('providers')
   const [selectedDetectedModels, setSelectedDetectedModels] = useState<Set<string>>(new Set())
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   useEffect(() => {
     const unsubscribe = chatStore.subscribe(setChatState)
@@ -218,7 +220,6 @@ function App() {
       )
 
       setSettings(nextSettings)
-      setPersistedSettings(nextSettings)
       setSelectedProviderId(selection.providerId)
       setSelectedModelId(selection.modelId)
 
@@ -232,17 +233,6 @@ function App() {
     }
   }, [chatStore])
 
-  const visibleConversations = useMemo(() => {
-    const keyword = searchValue.trim().toLowerCase()
-    if (!keyword) {
-      return chatState.conversations
-    }
-
-    return chatState.conversations.filter((conversation) =>
-      conversation.title.toLowerCase().includes(keyword),
-    )
-  }, [chatState.conversations, searchValue])
-
   const activeConversation = chatState.conversations.find(
     (conversation) => conversation.id === chatState.activeConversationId,
   )
@@ -254,11 +244,6 @@ function App() {
   const modelDetectionError = activeProvider ? modelDetectionErrors[activeProvider.id] ?? null : null
   const isDetectingModels = detectingProviderId === activeProvider?.id
   const isTestingConnection = testingConnectionProviderId === activeProvider?.id
-
-  const hasUnsavedSettings = useMemo(
-    () => !areSettingsEqual(settings, persistedSettings),
-    [persistedSettings, settings],
-  )
 
   const composerModelOptions = useMemo(
     () => getComposerModelOptions(settings),
@@ -292,15 +277,16 @@ function App() {
     setSettings(nextSettings)
     setSelectedProviderId(selection.providerId)
     setSelectedModelId(selection.modelId)
+    setHasUnsavedChanges(true)
   }
 
   async function handleSaveSettings() {
     const nextSettings = await desktop.updateSettings(settings)
     const selection = resolveSelection(nextSettings, selectedProviderId, selectedModelId)
     setSettings(nextSettings)
-    setPersistedSettings(nextSettings)
     setSelectedProviderId(selection.providerId)
     setSelectedModelId(selection.modelId)
+    setHasUnsavedChanges(false)
   }
 
   function handleUpdateChatParam(field: 'temperature' | 'topP' | 'presencePenalty' | 'frequencyPenalty' | 'maxTokens', value: string) {
@@ -324,6 +310,7 @@ function App() {
     setTestingConnectionProviderId(activeProvider.id)
     setConnectionTestResult(null)
 
+    const start = Date.now()
     try {
       const requestSettings = {
         apiKey: activeProvider.apiKey,
@@ -338,11 +325,14 @@ function App() {
       }
 
       await desktop.listAvailableModels(requestSettings)
-      setConnectionTestResult({ success: true, message: 'Connection successful' })
+      const latencyMs = Date.now() - start
+      setConnectionTestResult({ success: true, message: 'Connection successful', latencyMs })
     } catch (error) {
+      const latencyMs = Date.now() - start
       setConnectionTestResult({
         success: false,
         message: error instanceof Error ? error.message : 'Connection failed',
+        latencyMs,
       })
     } finally {
       setTestingConnectionProviderId(null)
@@ -511,6 +501,19 @@ function App() {
     }
   }
 
+  function handleSetDefaultModel(modelId: string) {
+    const model = settings.models.find((m) => m.id === modelId)
+    if (!model) return
+    applySettings({
+      ...settings,
+      preferences: {
+        ...settings.preferences,
+        defaultModelId: modelId,
+        defaultProviderId: model.providerId,
+      },
+    })
+  }
+
   return (
     <div className="app-frame">
       <div
@@ -520,17 +523,10 @@ function App() {
         <div className="app-drag-region" data-testid="window-drag-region" />
 
         <Sidebar
-          conversations={visibleConversations}
+          conversations={chatState.conversations}
           activeConversationId={chatState.activeConversationId}
-          searchValue={searchValue}
           mode={view === 'settings' ? 'settings' : 'conversations'}
           settingsTab={settingsTab}
-          onSearchChange={setSearchValue}
-          onCreateConversation={async () => {
-            chatStore.getState().clearError()
-            await chatStore.getState().createConversation()
-            setView('chat')
-          }}
           onSelectConversation={(conversationId) => {
             chatStore.getState().selectConversation(conversationId)
             setView('chat')
@@ -548,6 +544,14 @@ function App() {
 
             if (conversation) {
               downloadConversationMarkdown(conversation)
+            }
+          }}
+          onCreateConversation={async () => {
+            try {
+              await chatStore.getState().createConversation()
+              setView('chat')
+            } catch (error) {
+              console.error('Failed to create conversation:', error)
             }
           }}
           onOpenSettings={() => openSettings()}
@@ -612,7 +616,6 @@ function App() {
                     selectedComposerModel.id,
                   )
                   setSettings(persisted)
-                  setPersistedSettings(persisted)
                   setSelectedProviderId(selection.providerId)
                   setSelectedModelId(selection.modelId)
                 }}
@@ -632,13 +635,13 @@ function App() {
               activeProviderId={activeProvider?.id ?? null}
               detectedModels={detectedModels}
               selectedDetectedModels={selectedDetectedModels}
-              hasUnsavedChanges={hasUnsavedSettings}
               isDetectingModels={isDetectingModels}
               isTestingConnection={isTestingConnection}
               connectionTestResult={connectionTestResult}
               modelDetectionError={modelDetectionError}
               providerModels={providerModels}
               settings={settings}
+              hasUnsavedChanges={hasUnsavedChanges}
               onAddProvider={handleAddProvider}
               onTestConnection={handleTestConnection}
               onDeleteProvider={(providerId) => {
@@ -656,6 +659,7 @@ function App() {
                 }
               }}
               onDeleteModel={handleDeleteModel}
+              onSetDefaultModel={handleSetDefaultModel}
               onDetectModels={handleDetectModels}
               onImportSelectedModels={handleImportSelectedModels}
               onAddManualModel={handleAddManualModel}
@@ -722,6 +726,25 @@ function App() {
                 })
               }}
               onUpdateChatParam={handleUpdateChatParam}
+              onUpdateAppearance={(updates) => {
+                const currentAppearance = settings.preferences.appearance ?? {
+                  theme: 'system',
+                  fontSize: 'medium',
+                  codeBlockTheme: 'github',
+                  showLineNumbers: true,
+                  wordWrap: false,
+                }
+                applySettings({
+                  ...settings,
+                  preferences: {
+                    ...settings.preferences,
+                    appearance: {
+                      ...currentAppearance,
+                      ...updates,
+                    },
+                  },
+                })
+              }}
             />
           )}
         </main>

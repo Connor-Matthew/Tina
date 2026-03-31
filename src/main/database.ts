@@ -69,6 +69,11 @@ interface AppPreferencesRecord {
   presence_penalty: number | null
   frequency_penalty: number | null
   max_tokens: number | null
+  theme: string | null
+  font_size: string | null
+  code_block_theme: string | null
+  show_line_numbers: number | null
+  word_wrap: number | null
 }
 
 export interface AppDatabaseOptions {
@@ -177,6 +182,11 @@ export class AppDatabase {
         presence_penalty REAL DEFAULT 0,
         frequency_penalty REAL DEFAULT 0,
         max_tokens INTEGER,
+        theme TEXT DEFAULT 'system',
+        font_size TEXT DEFAULT 'medium',
+        code_block_theme TEXT DEFAULT 'github',
+        show_line_numbers INTEGER DEFAULT 1,
+        word_wrap INTEGER DEFAULT 0,
         FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
         FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
       );
@@ -238,16 +248,21 @@ export class AppDatabase {
   }
 
   private migrateAppPreferencesColumns(): void {
-    const columns = ['temperature', 'top_p', 'presence_penalty', 'frequency_penalty', 'max_tokens']
-    const defaults: Record<string, string> = {
-      temperature: '1.0',
-      top_p: '1.0',
-      presence_penalty: '0',
-      frequency_penalty: '0',
-    }
+    const columns: { name: string; type: string; default: string }[] = [
+      { name: 'temperature', type: 'REAL', default: '1.0' },
+      { name: 'top_p', type: 'REAL', default: '1.0' },
+      { name: 'presence_penalty', type: 'REAL', default: '0' },
+      { name: 'frequency_penalty', type: 'REAL', default: '0' },
+      { name: 'max_tokens', type: 'INTEGER', default: 'NULL' },
+      { name: 'theme', type: 'TEXT', default: "'system'" },
+      { name: 'font_size', type: 'TEXT', default: "'medium'" },
+      { name: 'code_block_theme', type: 'TEXT', default: "'github'" },
+      { name: 'show_line_numbers', type: 'INTEGER', default: '1' },
+      { name: 'word_wrap', type: 'INTEGER', default: '0' },
+    ]
     for (const column of columns) {
       try {
-        this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column} ${column === 'max_tokens' ? 'INTEGER' : 'REAL'} DEFAULT ${defaults[column] ?? 'NULL'}`)
+        this.database.exec(`ALTER TABLE app_preferences ADD COLUMN ${column.name} ${column.type} DEFAULT ${column.default}`)
       } catch {
         // column already exists
       }
@@ -395,7 +410,7 @@ export class AppDatabase {
 
     const preferences = this.database
       .prepare(`
-        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens
+        SELECT default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens, theme, font_size, code_block_theme, show_line_numbers, word_wrap
         FROM app_preferences
         WHERE id = 1
       `)
@@ -440,6 +455,13 @@ export class AppDatabase {
         presencePenalty: preferences?.presence_penalty ?? 0,
         frequencyPenalty: preferences?.frequency_penalty ?? 0,
         maxTokens: preferences?.max_tokens ?? undefined,
+        appearance: {
+          theme: (preferences?.theme as 'light' | 'dark' | 'system') ?? 'system',
+          fontSize: (preferences?.font_size as 'small' | 'medium' | 'large') ?? 'medium',
+          codeBlockTheme: (preferences?.code_block_theme as 'github' | 'monokai' | 'dracula' | 'one-dark' | 'atom-one-light') ?? 'github',
+          showLineNumbers: preferences?.show_line_numbers === 1,
+          wordWrap: preferences?.word_wrap === 1,
+        },
       },
     }
   }
@@ -540,10 +562,24 @@ export class AppDatabase {
 
       this.database
         .prepare(`
-          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens)
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO app_preferences (id, default_provider_id, default_model_id, system_prompt, temperature, top_p, presence_penalty, frequency_penalty, max_tokens, theme, font_size, code_block_theme, show_line_numbers, word_wrap)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
-        .run(defaultProviderId, defaultModelId, settings.preferences.systemPrompt, settings.preferences.temperature ?? 1.0, settings.preferences.topP ?? 1.0, settings.preferences.presencePenalty ?? 0, settings.preferences.frequencyPenalty ?? 0, settings.preferences.maxTokens ?? null)
+        .run(
+          defaultProviderId,
+          defaultModelId,
+          settings.preferences.systemPrompt,
+          settings.preferences.temperature ?? 1.0,
+          settings.preferences.topP ?? 1.0,
+          settings.preferences.presencePenalty ?? 0,
+          settings.preferences.frequencyPenalty ?? 0,
+          settings.preferences.maxTokens ?? null,
+          settings.preferences.appearance?.theme ?? 'system',
+          settings.preferences.appearance?.fontSize ?? 'medium',
+          settings.preferences.appearance?.codeBlockTheme ?? 'github',
+          settings.preferences.appearance?.showLineNumbers === true ? 1 : 0,
+          settings.preferences.appearance?.wordWrap === true ? 1 : 0,
+        )
     })
   }
 

@@ -89,6 +89,18 @@ export interface ProviderModelSettings {
   rawMetadata: Record<string, unknown>
 }
 
+export type ThemeMode = 'light' | 'dark' | 'system'
+export type FontSize = 'small' | 'medium' | 'large'
+export type CodeBlockTheme = 'github' | 'monokai' | 'dracula' | 'one-dark' | 'atom-one-light'
+
+export interface AppearanceSettings {
+  theme: ThemeMode
+  fontSize: FontSize
+  codeBlockTheme: CodeBlockTheme
+  showLineNumbers: boolean
+  wordWrap: boolean
+}
+
 export interface AppPreferences {
   defaultProviderId: string | null
   defaultModelId: string | null
@@ -98,6 +110,7 @@ export interface AppPreferences {
   presencePenalty?: number
   frequencyPenalty?: number
   maxTokens?: number
+  appearance?: AppearanceSettings
 }
 
 export interface AppSettings {

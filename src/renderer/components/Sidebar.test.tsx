@@ -8,9 +8,6 @@ function createSidebarProps() {
   return {
     conversations: [],
     activeConversationId: null,
-    searchValue: '',
-    onSearchChange: vi.fn(),
-    onCreateConversation: vi.fn(),
     onSelectConversation: vi.fn(),
     onRenameConversation: vi.fn(),
     onDeleteConversation: vi.fn(),
@@ -21,12 +18,9 @@ function createSidebarProps() {
 }
 
 describe('Sidebar', () => {
-  it('renders the Tina title block in the sidebar', () => {
+  it('renders the sidebar with settings button', () => {
     render(<Sidebar {...createSidebarProps()} />)
 
-    expect(screen.getByRole('heading', { name: 'Tina' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Search')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open settings' })).toBeInTheDocument()
   })
 
@@ -100,9 +94,6 @@ describe('Sidebar', () => {
           },
         ]}
         activeConversationId="conversation-1"
-        searchValue=""
-        onSearchChange={vi.fn()}
-        onCreateConversation={vi.fn()}
         onSelectConversation={vi.fn()}
         onRenameConversation={vi.fn()}
         onDeleteConversation={vi.fn()}
