@@ -1174,6 +1174,17 @@ body {
   margin-left: 4px;
 }
 
+.markdown-message__thinking-preview {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 12px;
+  color: #666;
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .markdown-message__thinking-content {
   padding: 12px 14px;
   background: #fafafa;

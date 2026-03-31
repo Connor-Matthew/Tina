@@ -127,15 +127,6 @@ function updateMessageContentAndReasoning(
   content: string,
   reasoningContent?: string,
 ): Conversation[] {
-  // Debug log: 记录更新操作
-  if (reasoningContent) {
-    console.log('[UPDATE-DEBUG] Updating message with reasoning:', {
-      messageId,
-      reasoningLength: reasoningContent.length,
-      reasoningPreview: reasoningContent.slice(0, 100)
-    })
-  }
-
   const result = conversations.map((conversation) =>
     conversation.id === conversationId
       ? {
@@ -152,15 +143,6 @@ function updateMessageContentAndReasoning(
         }
       : conversation,
   )
-
-  // 验证更新后的消息
-  const updatedMessage = result
-    .find(c => c.id === conversationId)?.messages
-    .find(m => m.id === messageId)
-  if (updatedMessage && reasoningContent) {
-    console.log('[UPDATE-DEBUG] After update, message has reasoningContent:', !!updatedMessage.reasoningContent)
-    console.log('[UPDATE-DEBUG] Reasoning content length:', updatedMessage.reasoningContent?.length)
-  }
 
   return result
 }
@@ -512,9 +494,6 @@ export function createChatStore(
         let accumulated = ''
         let accumulatedReasoning = ''
 
-        // Debug log: 记录流式开始
-        console.log('[CHAT-STORE-DEBUG] Starting message streaming')
-
         await new Promise<void>((resolve, reject) => {
           streamFromModel(
             activeConversation.messages,
@@ -523,20 +502,6 @@ export function createChatStore(
                 accumulatedReasoning += token
               } else {
                 accumulated += token
-              }
-
-              // Debug log: 记录每个 token（限制长度以避免控制台溢出）
-              const displayToken = token.length > 100 ? token.slice(0, 100) + '...' : token
-              const type = isReasoning ? 'REASONING' : 'CONTENT'
-              console.log(`[CHAT-STORE-DEBUG] Token (${type}):`, JSON.stringify(displayToken))
-
-              // 每50个token或者包含思考相关标签时，输出当前累积内容
-              const thinkingTags = /<\u3000\u601d\u8003>|<\/\u3000\u601d\u8003>|<thinking>|<\/thinking>|< think>/i
-              if (accumulated.length % 50 < 10 || thinkingTags.test(token)) {
-                const displayAccumulated = accumulated.length > 500
-                  ? accumulated.slice(0, 250) + '...' + accumulated.slice(-250)
-                  : accumulated
-                console.log('[CHAT-STORE-DEBUG] Accumulated content:', displayAccumulated)
               }
 
               set((state) => ({
@@ -553,12 +518,6 @@ export function createChatStore(
               reject(new Error(error))
             },
             () => {
-              // Debug log: 记录流式完成
-              console.log('[CHAT-STORE-DEBUG] Streaming completed, final length:', accumulated.length)
-              console.log('[CHAT-STORE-DEBUG] Final content (first 500 chars):', accumulated.slice(0, 500))
-              if (accumulatedReasoning) {
-                console.log('[CHAT-STORE-DEBUG] Reasoning length:', accumulatedReasoning.length)
-              }
               resolve()
             },
           ).catch(reject)

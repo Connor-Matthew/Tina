@@ -184,29 +184,22 @@ export async function* streamChatRequest(
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const payload = trimmed.slice(6)
 
-        // Debug: 输出原始 SSE payload
-        console.log('[STREAM-RAW] Received SSE payload:', payload)
-
         if (payload === '[DONE]') {
-          console.log('[STREAM-RAW] Stream ended with [DONE]')
           return
         }
 
         try {
           const parsed = JSON.parse(payload) as StreamDelta
-          console.log('[STREAM-RAW] Parsed delta:', JSON.stringify(parsed))
 
           const delta = parsed.choices?.[0]?.delta
           if (delta?.reasoning_content) {
-            console.log('[STREAM-RAW] Found reasoning_content:', JSON.stringify(delta.reasoning_content))
             yield { token: delta.reasoning_content, isReasoning: true }
           }
           if (delta?.content) {
-            console.log('[STREAM-RAW] Found content:', JSON.stringify(delta.content))
             yield { token: delta.content, isReasoning: false }
           }
-        } catch (error) {
-          console.log('[STREAM-RAW] Failed to parse JSON:', error)
+        } catch {
+          // Ignore parse errors for non-JSON SSE lines
         }
       }
     }

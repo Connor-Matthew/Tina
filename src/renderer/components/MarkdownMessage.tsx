@@ -361,9 +361,12 @@ function parseCallout(content: string): { type: CalloutType; content: string } |
   return null
 }
 
-// Thinking/思考内容折叠组件（流式追加模式）
+// Thinking/思考内容折叠组件
 function ThinkingBlock({ content, isStreaming = false }: { content: string; isStreaming?: boolean }) {
   const [collapsed, setCollapsed] = useState(true) // 默认折叠，用户点击展开
+
+  // 折叠时预览：只显示最后一行内容
+  const previewLine = content.split('\n').filter(Boolean).pop() ?? ''
 
   return (
     <div className="markdown-message__thinking">
@@ -386,12 +389,19 @@ function ThinkingBlock({ content, isStreaming = false }: { content: string; isSt
           <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
         <span>思考过程</span>
-        {collapsed && <span className="markdown-message__thinking-hint">(点击展开)</span>}
+        {isStreaming && collapsed && (
+          <span className="markdown-message__thinking-preview">
+            {previewLine}
+            <span className="markdown-message__cursor" />
+          </span>
+        )}
+        {collapsed && !isStreaming && (
+          <span className="markdown-message__thinking-hint">(点击展开)</span>
+        )}
       </button>
       {!collapsed && (
         <div className="markdown-message__thinking-content">
           {isStreaming ? (
-            // 流式模式：直接渲染文本，保留换行，避免 ReactMarkdown 重渲染闪烁
             <div style={{ margin: '8px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {content}
               <span className="markdown-message__cursor" />
@@ -569,20 +579,8 @@ function extractLinks(content: string): string[] {
 // 导出菜单组件 (已移除)
 
 export function MarkdownMessage({ content, reasoningContent, isStreaming = false }: MarkdownMessageProps) {
-  // Debug log: 记录输入到 MarkdownMessage 的内容
-  console.log('[MARKDOWN-DEBUG] MarkdownMessage received content length:', content.length)
-  console.log('[MARKDOWN-DEBUG] MarkdownMessage received reasoningContent:', !!reasoningContent)
-  console.log('[MARKDOWN-DEBUG] isStreaming:', isStreaming)
-
-  // 如果有 reasoningContent 字段，使用它；否则从 content 中提取（兼容旧数据）
   const thinking = reasoningContent || null
   const mainContent = thinking ? content : preprocessContent(content).mainContent
-
-  // Debug log: 记录处理结果
-  if (thinking) {
-    console.log('[MARKDOWN-DEBUG] Using reasoningContent field, length:', thinking.length)
-    console.log('[MARKDOWN-DEBUG] Reasoning (first 200 chars):', thinking.slice(0, 200))
-  }
 
   // 提取链接用于预览
   const links = extractLinks(content)

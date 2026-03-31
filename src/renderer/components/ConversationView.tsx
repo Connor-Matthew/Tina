@@ -75,15 +75,6 @@ export function ConversationView({
           const isLastAssistantMessage =
             isSending && message.role === 'assistant' && index === conversation.messages.length - 1
 
-          // Debug log: 记录每条消息
-          if (message.role === 'assistant' && message.reasoningContent) {
-            console.log('[CONVERSATION-DEBUG] Assistant message with reasoning:', {
-              messageId: message.id,
-              reasoningLength: message.reasoningContent.length,
-              isStreaming: isSending && isLastAssistantMessage
-            })
-          }
-
           return (
             <article
               key={message.id}

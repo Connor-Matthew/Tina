@@ -43,22 +43,13 @@ const desktopApi: DesktopApi = {
     return ipcRenderer.invoke('chat:send', messages) as Promise<string>
   },
   streamChat(messages, onToken, onError, onEnd) {
-    // Debug log: 记录流式请求开始
-    console.log('[PRELOAD-DEBUG] streamChat called, messages count:', messages.length)
-
     const chunkHandler = (_event: Electron.IpcRendererEvent, token: string, isReasoning = false) => {
-      // Debug log: 记录每个接收到的 token（限制长度）
-      const displayToken = token.length > 100 ? token.slice(0, 100) + '...' : token
-      const type = isReasoning ? 'REASONING' : 'CONTENT'
-      console.log('[PRELOAD-DEBUG] Received chunk (' + type + '):', JSON.stringify(displayToken))
       onToken(token, isReasoning)
     }
     const errorHandler = (_event: Electron.IpcRendererEvent, message: string) => {
-      console.log('[PRELOAD-DEBUG] Stream error:', message)
       onError(message)
     }
     const endHandler = () => {
-      console.log('[PRELOAD-DEBUG] Stream ended')
       ipcRenderer.removeListener('chat:stream-chunk', chunkHandler)
       ipcRenderer.removeListener('chat:stream-error', errorHandler)
       ipcRenderer.removeListener('chat:stream-end', endHandler)
