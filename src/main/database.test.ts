@@ -83,6 +83,17 @@ describe('AppDatabase', () => {
         defaultProviderId: 'provider-openai',
         defaultModelId: 'model-openai-gpt-4.1',
         systemPrompt: 'Be concise.',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: false,
+          wordWrap: false,
+        },
       },
     } as const
 
@@ -149,6 +160,17 @@ describe('AppDatabase', () => {
         defaultProviderId: expect.any(String),
         defaultModelId: expect.any(String),
         systemPrompt: 'legacy prompt',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: true,
+          wordWrap: false,
+        },
       },
     })
 

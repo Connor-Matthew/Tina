@@ -60,6 +60,17 @@ describe('settings helpers', () => {
         defaultProviderId: 'provider-openai',
         defaultModelId: 'model-openai-gpt-4o-mini',
         systemPrompt: '',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: true,
+          wordWrap: false,
+        },
       },
     })
   })
@@ -115,6 +126,17 @@ describe('settings helpers', () => {
         defaultProviderId: expect.any(String),
         defaultModelId: expect.any(String),
         systemPrompt: 'Use markdown',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: true,
+          wordWrap: false,
+        },
       },
     })
   })
@@ -159,6 +181,17 @@ describe('SettingsStore', () => {
         defaultProviderId: expect.any(String),
         defaultModelId: expect.any(String),
         systemPrompt: '',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: true,
+          wordWrap: false,
+        },
       },
     })
     expect(database.getSettings()).toEqual(store.get())
@@ -234,6 +267,17 @@ describe('SettingsStore', () => {
         defaultProviderId: 'provider-custom',
         defaultModelId: 'model-custom',
         systemPrompt: 'Use markdown',
+        temperature: 1.0,
+        topP: 1.0,
+        presencePenalty: 0,
+        frequencyPenalty: 0,
+        appearance: {
+          theme: 'system',
+          fontSize: 'medium',
+          codeBlockTheme: 'github',
+          showLineNumbers: true,
+          wordWrap: false,
+        },
       },
     })
     expect(database.getSettings()).toEqual(store.get())

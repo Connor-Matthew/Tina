@@ -1,4 +1,5 @@
 import type { ChatMessage, ModelRequestSettings } from '../shared/contracts'
+import { normalizeBaseUrl } from '../shared/contracts'
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant'
@@ -37,10 +38,6 @@ interface TestConnectionResult {
 }
 
 type FetchLike = typeof fetch
-
-export function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
-}
 
 export function buildChatRequest(
   settings: ModelRequestSettings,

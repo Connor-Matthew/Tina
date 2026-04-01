@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { AppSettings, ProviderModelSettings, ProviderSettings } from '../shared/contracts'
+import { normalizeBaseUrl, inferProviderIdentity } from '../shared/contracts'
 import type { AppDatabase } from './database'
 
 export interface LegacyAppSettings {
@@ -60,31 +61,6 @@ export const defaultSettings: AppSettings = {
 
 export interface LegacySettingsStore {
   get(): Partial<LegacyAppSettings> | undefined
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
-}
-
-function inferProviderIdentity(baseUrl: string): {
-  name: string
-  providerType: string
-} {
-  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
-
-  if (normalized.includes('openrouter.ai')) {
-    return { name: 'OpenRouter', providerType: 'openrouter' }
-  }
-
-  if (normalized.includes('anthropic.com')) {
-    return { name: 'Anthropic', providerType: 'anthropic' }
-  }
-
-  if (!normalized || normalized.includes('openai.com')) {
-    return { name: 'OpenAI', providerType: 'openai' }
-  }
-
-  return { name: '已迁移供应商', providerType: 'custom' }
 }
 
 export function mergeSettings(
@@ -220,6 +196,7 @@ export function normalizeAppSettings(settings: AppSettings): AppSettings {
 }
 
 export function createLegacySettingsStore(): LegacySettingsStore {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const ElectronStore = require('electron-store').default as new (options: {
     defaults: { settings: LegacyAppSettings }
     name: string

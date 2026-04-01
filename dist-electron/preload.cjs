@@ -7,6 +7,9 @@ electron.contextBridge.exposeInMainWorld("desktop", {
 	listAvailableModels(settings) {
 		return electron.ipcRenderer.invoke("settings:list-models", settings);
 	},
+	testProviderConnection(settings) {
+		return electron.ipcRenderer.invoke("settings:test-connection", settings);
+	},
 	updateSettings(next) {
 		return electron.ipcRenderer.invoke("settings:update", next);
 	},
@@ -44,16 +47,21 @@ electron.contextBridge.exposeInMainWorld("desktop", {
 		const chunkHandler = (_event, token, isReasoning = false) => {
 			onToken(token, isReasoning);
 		};
+		const chunkBatchHandler = (_event, batch) => {
+			for (const item of batch) onToken(item.token, item.isReasoning);
+		};
 		const errorHandler = (_event, message) => {
 			onError(message);
 		};
 		const endHandler = () => {
 			electron.ipcRenderer.removeListener("chat:stream-chunk", chunkHandler);
+			electron.ipcRenderer.removeListener("chat:stream-chunk-batch", chunkBatchHandler);
 			electron.ipcRenderer.removeListener("chat:stream-error", errorHandler);
 			electron.ipcRenderer.removeListener("chat:stream-end", endHandler);
 			onEnd();
 		};
 		electron.ipcRenderer.on("chat:stream-chunk", chunkHandler);
+		electron.ipcRenderer.on("chat:stream-chunk-batch", chunkBatchHandler);
 		electron.ipcRenderer.on("chat:stream-error", errorHandler);
 		electron.ipcRenderer.on("chat:stream-end", endHandler);
 		return electron.ipcRenderer.invoke("chat:stream", messages);

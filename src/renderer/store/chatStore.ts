@@ -290,6 +290,8 @@ export function createChatStore(
 
         let accumulated = ''
         let accumulatedReasoning = ''
+        let lastUpdate = 0
+        const THROTTLE_MS = 16
 
         await new Promise<void>((resolve, reject) => {
           streamFromModel(
@@ -300,6 +302,9 @@ export function createChatStore(
               } else {
                 accumulated += token
               }
+              const now = Date.now()
+              if (now - lastUpdate < THROTTLE_MS) return
+              lastUpdate = now
               set((state) => ({
                 conversations: updateMessageContentAndReasoning(
                   state.conversations,
@@ -311,7 +316,18 @@ export function createChatStore(
               }))
             },
             (error) => reject(new Error(error)),
-            () => resolve(),
+            () => {
+              set((state) => ({
+                conversations: updateMessageContentAndReasoning(
+                  state.conversations,
+                  input.conversationId,
+                  assistantMessage.id,
+                  accumulated,
+                  accumulatedReasoning,
+                ),
+              }))
+              resolve()
+            },
           ).catch(reject)
         })
 
@@ -365,6 +381,8 @@ export function createChatStore(
 
         let accumulated = ''
         let accumulatedReasoning = ''
+        let lastUpdate = 0
+        const THROTTLE_MS = 16
 
         await new Promise<void>((resolve, reject) => {
           streamFromModel(
@@ -375,6 +393,9 @@ export function createChatStore(
               } else {
                 accumulated += token
               }
+              const now = Date.now()
+              if (now - lastUpdate < THROTTLE_MS) return
+              lastUpdate = now
               set((state) => ({
                 conversations: updateMessageContentAndReasoning(
                   state.conversations,
@@ -386,7 +407,18 @@ export function createChatStore(
               }))
             },
             (error) => reject(new Error(error)),
-            () => resolve(),
+            () => {
+              set((state) => ({
+                conversations: updateMessageContentAndReasoning(
+                  state.conversations,
+                  conversationId,
+                  assistantMessage.id,
+                  accumulated,
+                  accumulatedReasoning,
+                ),
+              }))
+              resolve()
+            },
           ).catch(reject)
         })
 
@@ -493,6 +525,8 @@ export function createChatStore(
 
         let accumulated = ''
         let accumulatedReasoning = ''
+        let lastUpdate = 0
+        const THROTTLE_MS = 16
 
         await new Promise<void>((resolve, reject) => {
           streamFromModel(
@@ -504,6 +538,10 @@ export function createChatStore(
                 accumulated += token
               }
 
+              const now = Date.now()
+              if (now - lastUpdate < THROTTLE_MS) return
+
+              lastUpdate = now
               set((state) => ({
                 conversations: updateMessageContentAndReasoning(
                   state.conversations,
@@ -518,6 +556,16 @@ export function createChatStore(
               reject(new Error(error))
             },
             () => {
+              // Flush final state to ensure all content is persisted
+              set((state) => ({
+                conversations: updateMessageContentAndReasoning(
+                  state.conversations,
+                  targetConversationId,
+                  assistantMessage.id,
+                  accumulated,
+                  accumulatedReasoning,
+                ),
+              }))
               resolve()
             },
           ).catch(reject)

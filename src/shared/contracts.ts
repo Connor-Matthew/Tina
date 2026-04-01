@@ -11,7 +11,7 @@ export type ModelCapability =
 
 export type ProviderPresetKey =
   | 'openai'
-  | 'anthorpic'
+  | 'anthropic'
   | 'openrouter'
   | 'azure'
   | 'ollama'
@@ -33,7 +33,7 @@ export interface ProviderPreset {
 
 export const providerPresets: ProviderPreset[] = [
   { key: 'openai', name: 'OpenAI', defaultBaseUrl: 'https://api.openai.com/v1', providerType: 'openai', requiresApiKey: true, requiresBaseUrl: true },
-  { key: 'anthorpic', name: 'Anthorpic', defaultBaseUrl: 'https://api.anthorpic.com', providerType: 'anthorpic', requiresApiKey: true, requiresBaseUrl: true },
+  { key: 'anthropic', name: 'Anthropic', defaultBaseUrl: 'https://api.anthropic.com', providerType: 'anthropic', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'openrouter', name: 'OpenRouter', defaultBaseUrl: 'https://openrouter.ai/api/v1', providerType: 'openrouter', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'azure', name: 'Azure OpenAI', defaultBaseUrl: 'https://{resource}.openai.azure.com/openai/deployments/{deployment}', providerType: 'azure', requiresApiKey: true, requiresBaseUrl: true },
   { key: 'ollama', name: 'Ollama', defaultBaseUrl: 'http://localhost:11434/v1', providerType: 'ollama', requiresApiKey: false, requiresBaseUrl: true },
@@ -53,7 +53,7 @@ export function inferProviderPreset(baseUrl: string): ProviderPresetKey {
   if (normalized.includes('moonshot.cn')) return 'moonshot'
   if (normalized.includes('bigmodel.cn')) return 'zhipu'
   if (normalized.includes('openrouter.ai')) return 'openrouter'
-  if (normalized.includes('anthorpic.com')) return 'anthorpic'
+  if (normalized.includes('anthropic.com')) return 'anthropic'
   if (normalized.includes('openai.com')) return 'openai'
   if (normalized.includes('azure.com')) return 'azure'
   if (normalized.includes('localhost:11434')) return 'ollama'
@@ -63,6 +63,31 @@ export function inferProviderPreset(baseUrl: string): ProviderPresetKey {
 
 export function getPresetByKey(key: ProviderPresetKey): ProviderPreset | undefined {
   return providerPresets.find((p) => p.key === key)
+}
+
+export function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '')
+}
+
+export function inferProviderIdentity(baseUrl: string): {
+  name: string
+  providerType: string
+} {
+  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
+
+  if (normalized.includes('openrouter.ai')) {
+    return { name: 'OpenRouter', providerType: 'openrouter' }
+  }
+
+  if (normalized.includes('anthropic.com')) {
+    return { name: 'Anthropic', providerType: 'anthropic' }
+  }
+
+  if (!normalized || normalized.includes('openai.com')) {
+    return { name: 'OpenAI', providerType: 'openai' }
+  }
+
+  return { name: '已迁移供应商', providerType: 'custom' }
 }
 
 export interface ProviderSettings {
@@ -160,6 +185,7 @@ export interface ChatComposerSubmission {
 export interface DesktopApi {
   getSettings(): Promise<AppSettings>
   listAvailableModels(settings: ModelRequestSettings): Promise<string[]>
+  testProviderConnection(settings: ModelRequestSettings): Promise<{ success: boolean; error?: string }>
   updateSettings(next: AppSettings): Promise<AppSettings>
   listConversations(): Promise<Conversation[]>
   createConversation(title?: string): Promise<Conversation>

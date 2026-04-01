@@ -11,7 +11,9 @@
     "build": "tsc -b && vite build",
     "dist": "npm run build && electron-builder --mac",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@types/mermaid": "^9.1.0",

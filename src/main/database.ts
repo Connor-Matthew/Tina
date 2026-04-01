@@ -7,6 +7,7 @@ import type {
   Conversation,
   ModelCapability,
 } from '../shared/contracts'
+import { normalizeBaseUrl, inferProviderIdentity } from '../shared/contracts'
 
 interface ConversationRecord {
   created_at: string
@@ -87,29 +88,11 @@ function nowIsoString(): string {
   return `${new Date().toISOString()}-${timestampCounter.toString().padStart(6, '0')}`
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '')
-}
-
 function inferLegacyProvider(baseUrl: string): {
   name: string
   providerType: string
 } {
-  const normalized = normalizeBaseUrl(baseUrl).toLowerCase()
-
-  if (normalized.includes('openrouter.ai')) {
-    return { name: 'OpenRouter', providerType: 'openrouter' }
-  }
-
-  if (normalized.includes('anthropic.com')) {
-    return { name: 'Anthropic', providerType: 'anthropic' }
-  }
-
-  if (!normalized || normalized.includes('openai.com')) {
-    return { name: 'OpenAI', providerType: 'openai' }
-  }
-
-  return { name: '已迁移供应商', providerType: 'custom' }
+  return inferProviderIdentity(baseUrl)
 }
 
 function parseAttachments(value: string): ChatAttachment[] | undefined {
@@ -592,13 +575,18 @@ export class AppDatabase {
       `)
       .all() as unknown as ConversationRecord[]
 
+    const conversationIds = conversations.map((c) => c.id)
+    if (conversationIds.length === 0) return []
+
+    const placeholders = conversationIds.map(() => '?').join(',')
     const messages = this.database
       .prepare(`
         SELECT id, conversation_id, role, content, attachments_json, reasoning_content, created_at
         FROM messages
-        ORDER BY created_at ASC, id ASC
+        WHERE conversation_id IN (${placeholders})
+        ORDER BY conversation_id, created_at ASC, id ASC
       `)
-      .all() as unknown as MessageRecord[]
+      .all(...conversationIds) as unknown as MessageRecord[]
 
     const messagesByConversation = new Map<string, ChatMessage[]>()
 
@@ -643,13 +631,15 @@ export class AppDatabase {
       .prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?')
       .run(title, nowIsoString(), id)
 
-    const conversation = this.listConversations().find((item) => item.id === id)
+    const row = this.database
+      .prepare('SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?')
+      .get(id) as ConversationRecord | undefined
 
-    if (!conversation) {
+    if (!row) {
       throw new Error(`Conversation not found: ${id}`)
     }
 
-    return conversation
+    return toConversation(row, [])
   }
 
   deleteConversation(id: string): void {

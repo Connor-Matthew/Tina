@@ -1,12 +1,81 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
+import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
+import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
+import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp'
+import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
+import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
+import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
+import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
+import kotlin from 'react-syntax-highlighter/dist/esm/languages/prism/kotlin'
+import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
+import html from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
+import lua from 'react-syntax-highlighter/dist/esm/languages/prism/lua'
+import graphql from 'react-syntax-highlighter/dist/esm/languages/prism/graphql'
+import dockerfile from 'react-syntax-highlighter/dist/esm/languages/prism/docker'
+import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
+import ini from 'react-syntax-highlighter/dist/esm/languages/prism/ini'
+import powershell from 'react-syntax-highlighter/dist/esm/languages/prism/powershell'
+import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
 import mermaid from 'mermaid'
 import 'katex/dist/katex.min.css'
+
+SyntaxHighlighter.registerLanguage('javascript', javascript)
+SyntaxHighlighter.registerLanguage('js', javascript)
+SyntaxHighlighter.registerLanguage('typescript', typescript)
+SyntaxHighlighter.registerLanguage('ts', typescript)
+SyntaxHighlighter.registerLanguage('python', python)
+SyntaxHighlighter.registerLanguage('py', python)
+SyntaxHighlighter.registerLanguage('java', java)
+SyntaxHighlighter.registerLanguage('css', css)
+SyntaxHighlighter.registerLanguage('json', json)
+SyntaxHighlighter.registerLanguage('bash', bash)
+SyntaxHighlighter.registerLanguage('sh', bash)
+SyntaxHighlighter.registerLanguage('sql', sql)
+SyntaxHighlighter.registerLanguage('go', go)
+SyntaxHighlighter.registerLanguage('rust', rust)
+SyntaxHighlighter.registerLanguage('cpp', cpp)
+SyntaxHighlighter.registerLanguage('csharp', csharp)
+SyntaxHighlighter.registerLanguage('cs', csharp)
+SyntaxHighlighter.registerLanguage('php', php)
+SyntaxHighlighter.registerLanguage('ruby', ruby)
+SyntaxHighlighter.registerLanguage('rb', ruby)
+SyntaxHighlighter.registerLanguage('swift', swift)
+SyntaxHighlighter.registerLanguage('kotlin', kotlin)
+SyntaxHighlighter.registerLanguage('kt', kotlin)
+SyntaxHighlighter.registerLanguage('dart', dart)
+SyntaxHighlighter.registerLanguage('jsx', jsx)
+SyntaxHighlighter.registerLanguage('tsx', tsx)
+SyntaxHighlighter.registerLanguage('html', html)
+SyntaxHighlighter.registerLanguage('yaml', yaml)
+SyntaxHighlighter.registerLanguage('yml', yaml)
+SyntaxHighlighter.registerLanguage('markdown', markdown)
+SyntaxHighlighter.registerLanguage('md', markdown)
+SyntaxHighlighter.registerLanguage('lua', lua)
+SyntaxHighlighter.registerLanguage('graphql', graphql)
+SyntaxHighlighter.registerLanguage('dockerfile', dockerfile)
+SyntaxHighlighter.registerLanguage('toml', toml)
+SyntaxHighlighter.registerLanguage('ini', ini)
+SyntaxHighlighter.registerLanguage('powershell', powershell)
+SyntaxHighlighter.registerLanguage('ps1', powershell)
+SyntaxHighlighter.registerLanguage('r', r)
 
 // Custom remark plugin to auto-detect and wrap unescaped LaTeX math expressions
 function remarkMathAutoWrap() {
@@ -578,19 +647,24 @@ function extractLinks(content: string): string[] {
 
 // 导出菜单组件 (已移除)
 
-export function MarkdownMessage({ content, reasoningContent, isStreaming = false }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content, reasoningContent, isStreaming = false }: MarkdownMessageProps) {
   const thinking = reasoningContent || null
-  const mainContent = thinking ? content : preprocessContent(content).mainContent
+  const mainContent = useMemo(() => {
+    if (thinking) return content
+    return preprocessContent(content).mainContent
+  }, [content, thinking])
 
   // 提取链接用于预览
-  const links = extractLinks(content)
-  const previewLinks = links.filter(url =>
-    url.includes('github.com') ||
-    url.includes('youtube.com') ||
-    url.includes('youtu.be') ||
-    url.includes('twitter.com') ||
-    url.includes('x.com')
-  ).slice(0, 3) // 最多显示3个链接预览
+  const previewLinks = useMemo(() => {
+    const links = extractLinks(content)
+    return links.filter(url =>
+      url.includes('github.com') ||
+      url.includes('youtube.com') ||
+      url.includes('youtu.be') ||
+      url.includes('twitter.com') ||
+      url.includes('x.com')
+    ).slice(0, 3)
+  }, [content])
 
   return (
     <div className="markdown-message">
@@ -670,4 +744,4 @@ export function MarkdownMessage({ content, reasoningContent, isStreaming = false
       {isStreaming && <span className="markdown-message__cursor" />}
     </div>
   )
-}
+})

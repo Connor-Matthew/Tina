@@ -1,10 +1,11 @@
 import { app, ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { AppDatabase } from './database'
-import { listAvailableModels, sendChatRequest, streamChatRequest } from './openai'
+import { listAvailableModels, sendChatRequest, streamChatRequest, testProviderConnection } from './openai'
 import { SettingsStore } from './settings'
 import type { AppSettings, ChatMessage, ModelRequestSettings } from '../shared/contracts'
 
@@ -18,26 +19,25 @@ function getAttachmentsDir(): string {
   return dir
 }
 
-function resolveAttachmentDataUrls(messages: ChatMessage[]): ChatMessage[] {
+async function resolveAttachmentDataUrlsAsync(messages: ChatMessage[]): Promise<ChatMessage[]> {
   const dir = getAttachmentsDir()
-  return messages.map((msg) => {
+  const results = await Promise.all(messages.map(async (msg) => {
     if (!msg.attachments?.length) return msg
-    return {
-      ...msg,
-      attachments: msg.attachments.map((att) => {
-        if (att.dataUrl || att.kind !== 'image') return att
-        const filePath = join(dir, `${att.id}`)
-        if (!existsSync(filePath)) return att
-        const data = readFileSync(filePath).toString('base64')
-        const ext = att.name.split('.').pop()?.toLowerCase() ?? 'png'
-        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-          : ext === 'gif' ? 'image/gif'
-          : ext === 'webp' ? 'image/webp'
-          : 'image/png'
-        return { ...att, dataUrl: `data:${mime};base64,${data}` }
-      }),
-    }
-  })
+    const resolvedAttachments = await Promise.all(msg.attachments.map(async (att) => {
+      if (att.dataUrl || att.kind !== 'image') return att
+      const filePath = join(dir, `${att.id}`)
+      if (!existsSync(filePath)) return att
+      const data = (await readFile(filePath)).toString('base64')
+      const ext = att.name.split('.').pop()?.toLowerCase() ?? 'png'
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+        : ext === 'gif' ? 'image/gif'
+        : ext === 'webp' ? 'image/webp'
+        : 'image/png'
+      return { ...att, dataUrl: `data:${mime};base64,${data}` }
+    }))
+    return { ...msg, attachments: resolvedAttachments }
+  }))
+  return results
 }
 
 function getDatabase(): AppDatabase {
@@ -94,6 +94,11 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(
+    'settings:test-connection',
+    (_event, settings: ModelRequestSettings) => testProviderConnection(settings),
+  )
+
+  ipcMain.handle(
     'settings:update',
     (_event, next: AppSettings) => getSettingsStore().set(next),
   )
@@ -145,16 +150,24 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('chat:send', async (_event, messages: ChatMessage[]) => {
     return sendChatRequest(
       resolveCurrentRequestSettings(getSettingsStore().get()),
-      resolveAttachmentDataUrls(messages),
+      await resolveAttachmentDataUrlsAsync(messages),
     )
   })
 
   ipcMain.handle('chat:stream', async (event, messages: ChatMessage[]) => {
     const webContents = event.sender
-    const conversationId = event.processId.toString()
-    const resolved = resolveAttachmentDataUrls(messages)
+    const requestId = randomUUID()
+    const resolved = await resolveAttachmentDataUrlsAsync(messages)
     const abortController = new AbortController()
-    streamAbortControllers.set(conversationId, abortController)
+    streamAbortControllers.set(requestId, abortController)
+
+    let batch: { token: string; isReasoning: boolean }[] = []
+    const flushBatch = () => {
+      if (batch.length > 0) {
+        webContents.send('chat:stream-chunk-batch', batch)
+        batch = []
+      }
+    }
 
     try {
       for await (const chunk of streamChatRequest(
@@ -165,24 +178,35 @@ export function registerIpcHandlers(): void {
       )) {
         if (abortController.signal.aborted) break
 
-        webContents.send('chat:stream-chunk', chunk.token, chunk.isReasoning)
+        batch.push({ token: chunk.token, isReasoning: chunk.isReasoning })
+        if (batch.length >= 10) flushBatch()
       }
+      flushBatch()
       webContents.send('chat:stream-end')
     } catch (error) {
+      flushBatch()
       webContents.send(
         'chat:stream-error',
         error instanceof Error ? error.message : 'Stream failed.',
       )
     } finally {
-      streamAbortControllers.delete(conversationId)
+      streamAbortControllers.delete(requestId)
     }
   })
 
-  ipcMain.handle('chat:abort', () => {
-    for (const controller of streamAbortControllers.values()) {
-      controller.abort()
+  ipcMain.handle('chat:abort', (_event, requestId?: string) => {
+    if (requestId) {
+      const controller = streamAbortControllers.get(requestId)
+      if (controller) {
+        controller.abort()
+        streamAbortControllers.delete(requestId)
+      }
+    } else {
+      for (const controller of streamAbortControllers.values()) {
+        controller.abort()
+      }
+      streamAbortControllers.clear()
     }
-    streamAbortControllers.clear()
   })
 
   ipcMain.handle('chat:generate-title', async (_event, conversationId: string, messages: ChatMessage[]) => {

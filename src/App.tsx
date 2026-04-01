@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 
 import './App.css'
 import { Composer, type ComposerModelOption } from './renderer/components/Composer'
@@ -514,6 +514,63 @@ function App() {
     })
   }
 
+  const handleSelectConversation = useCallback((conversationId: string) => {
+    chatStore.getState().selectConversation(conversationId)
+    setView('chat')
+  }, [chatStore])
+
+  const handleRenameConversation = useCallback(async (conversationId: string, title: string) => {
+    await chatStore.getState().renameConversation(conversationId, title)
+  }, [chatStore])
+
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
+    await chatStore.getState().deleteConversation(conversationId)
+  }, [chatStore])
+
+  const handleExportConversation = useCallback((conversationId: string) => {
+    const conversation = chatStore
+      .getState()
+      .conversations.find((item) => item.id === conversationId)
+
+    if (conversation) {
+      downloadConversationMarkdown(conversation)
+    }
+  }, [chatStore])
+
+  const handleCreateConversation = useCallback(async () => {
+    try {
+      await chatStore.getState().createConversation()
+      setView('chat')
+    } catch (error) {
+      console.error('Failed to create conversation:', error)
+    }
+  }, [chatStore])
+
+  const handleCopyMessage = useCallback(async (content: string) => {
+    await copyToClipboard(content)
+  }, [])
+
+  const handleDeleteMessage = useCallback(async (conversationId: string, messageId: string) => {
+    await chatStore.getState().deleteMessagesFrom(conversationId, messageId)
+  }, [chatStore])
+
+  const handleEditMessage = useCallback(async (conversationId: string, messageId: string, content: string) => {
+    await chatStore.getState().editMessageAndResend(
+      { conversationId, messageId, content },
+      (messages: ChatMessage[], onToken, onError, onEnd) =>
+        desktop.streamChat(messages, onToken, onError, onEnd),
+    )
+  }, [chatStore])
+
+  const handleResendMessage = useCallback(async (conversationId: string, messageId: string) => {
+    await chatStore.getState().resendMessage(
+      conversationId,
+      messageId,
+      (messages: ChatMessage[], onToken, onError, onEnd) =>
+        desktop.streamChat(messages, onToken, onError, onEnd),
+    )
+  }, [chatStore])
+
   return (
     <div className="app-frame">
       <div
@@ -527,33 +584,11 @@ function App() {
           activeConversationId={chatState.activeConversationId}
           mode={view === 'settings' ? 'settings' : 'conversations'}
           settingsTab={settingsTab}
-          onSelectConversation={(conversationId) => {
-            chatStore.getState().selectConversation(conversationId)
-            setView('chat')
-          }}
-          onRenameConversation={async (conversationId, title) => {
-            await chatStore.getState().renameConversation(conversationId, title)
-          }}
-          onDeleteConversation={async (conversationId) => {
-            await chatStore.getState().deleteConversation(conversationId)
-          }}
-          onExportConversation={(conversationId) => {
-            const conversation = chatStore
-              .getState()
-              .conversations.find((item) => item.id === conversationId)
-
-            if (conversation) {
-              downloadConversationMarkdown(conversation)
-            }
-          }}
-          onCreateConversation={async () => {
-            try {
-              await chatStore.getState().createConversation()
-              setView('chat')
-            } catch (error) {
-              console.error('Failed to create conversation:', error)
-            }
-          }}
+          onSelectConversation={handleSelectConversation}
+          onRenameConversation={handleRenameConversation}
+          onDeleteConversation={handleDeleteConversation}
+          onExportConversation={handleExportConversation}
+          onCreateConversation={handleCreateConversation}
           onOpenSettings={() => openSettings()}
           onSelectSettingsTab={(tab) => setSettingsTab(tab)}
           onBackToChat={() => setView('chat')}
@@ -567,27 +602,10 @@ function App() {
                 isSending={chatState.isSending}
                 error={chatState.error}
                 onOpenSettings={() => openSettings()}
-                onCopyMessage={async (content: string) => {
-                  await copyToClipboard(content)
-                }}
-                onDeleteMessage={async (conversationId: string, messageId: string) => {
-                  await chatStore.getState().deleteMessagesFrom(conversationId, messageId)
-                }}
-                onEditMessage={async (conversationId: string, messageId: string, content: string) => {
-                  await chatStore.getState().editMessageAndResend(
-                    { conversationId, messageId, content },
-                    (messages: ChatMessage[], onToken, onError, onEnd) =>
-                      desktop.streamChat(messages, onToken, onError, onEnd),
-                  )
-                }}
-                onResendMessage={async (conversationId: string, messageId: string) => {
-                  await chatStore.getState().resendMessage(
-                    conversationId,
-                    messageId,
-                    (messages: ChatMessage[], onToken, onError, onEnd) =>
-                      desktop.streamChat(messages, onToken, onError, onEnd),
-                  )
-                }}
+                onCopyMessage={handleCopyMessage}
+                onDeleteMessage={handleDeleteMessage}
+                onEditMessage={handleEditMessage}
+                onResendMessage={handleResendMessage}
               />
               <Composer
                 disabled={chatState.isSending}

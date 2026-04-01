@@ -15,6 +15,9 @@ export default defineConfig({
         vite: {
           build: {
             target: 'node18',
+            rollupOptions: {
+              external: ['electron-store'],
+            },
             lib: {
               entry: 'src/main/index.ts',
               formats: ['cjs'],

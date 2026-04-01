@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ChatMessage, ModelRequestSettings } from '../shared/contracts'
+import { normalizeBaseUrl } from '../shared/contracts'
 import {
   buildChatRequest,
   listAvailableModels,
-  normalizeBaseUrl,
   sendChatRequest,
   streamChatRequest,
   testProviderConnection,

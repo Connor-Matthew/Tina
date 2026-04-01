@@ -935,7 +935,7 @@ describe('App', () => {
     await user.click(getSidebarSettingsButton(container))
     await user.click(screen.getByRole('tab', { name: '通用' }))
 
-    expect(screen.getByLabelText('System Prompt')).toBeInTheDocument()
+    expect(screen.getByLabelText('系统提示词')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Back to chat' }))
 

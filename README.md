@@ -1,73 +1,66 @@
-# React + TypeScript + Vite
+# Tina
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Tina 是一个跨平台的 AI 聊天桌面应用，基于 Electron、React 19 和 TypeScript 构建。
 
-Currently, two official plugins are available:
+## 特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- 多供应商支持：OpenAI、Anthropic、OpenRouter、Ollama、LM Studio、硅基流动、DeepSeek、月之暗面、智谱等
+- 流式对话与推理内容展示
+- 图片附件支持
+- Markdown 渲染（代码高亮、LaTeX 数学公式、Mermaid 图表）
+- 对话管理与导出
+- 深色/浅色主题切换
+- 本地 SQLite 数据持久化
 
-## React Compiler
+## 开发
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# 安装依赖
+npm install
 
-## Expanding the ESLint configuration
+# 启动开发服务器
+npm run dev
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+# 类型检查与构建
+npm run build
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+# 运行测试
+npm test
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+# 运行测试（监听模式）
+npm run test:watch
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 打包应用
+npm run dist
+
+# 代码检查
+npm run lint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 技术栈
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **Electron** - 跨平台桌面框架
+- **React 19** - UI 框架
+- **TypeScript** - 类型安全
+- **Zustand** - 状态管理
+- **SQLite** - 本地数据存储（通过 `node:sqlite`）
+- **Vite** - 构建工具
+- **Vitest** - 测试框架
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 项目结构
+
 ```
+src/
+├── main/           # Electron 主进程
+├── preload/        # 预加载脚本
+├── renderer/       # 渲染器（React UI）
+│   ├── components/ # UI 组件
+│   ├── lib/        # 工具函数
+│   └── store/      # 状态管理
+├── shared/         # 主进程与渲染器共享类型
+└── App.tsx         # 根组件
+```
+
+## 许可证
+
+MIT

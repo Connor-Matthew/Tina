@@ -9,6 +9,9 @@ const desktopApi: DesktopApi = {
   listAvailableModels(settings) {
     return ipcRenderer.invoke('settings:list-models', settings) as Promise<string[]>
   },
+  testProviderConnection(settings) {
+    return ipcRenderer.invoke('settings:test-connection', settings) as Promise<{ success: boolean; error?: string }>
+  },
   updateSettings(next) {
     return ipcRenderer.invoke('settings:update', next) as Promise<AppSettings>
   },
@@ -46,17 +49,24 @@ const desktopApi: DesktopApi = {
     const chunkHandler = (_event: Electron.IpcRendererEvent, token: string, isReasoning = false) => {
       onToken(token, isReasoning)
     }
+    const chunkBatchHandler = (_event: Electron.IpcRendererEvent, batch: { token: string; isReasoning: boolean }[]) => {
+      for (const item of batch) {
+        onToken(item.token, item.isReasoning)
+      }
+    }
     const errorHandler = (_event: Electron.IpcRendererEvent, message: string) => {
       onError(message)
     }
     const endHandler = () => {
       ipcRenderer.removeListener('chat:stream-chunk', chunkHandler)
+      ipcRenderer.removeListener('chat:stream-chunk-batch', chunkBatchHandler)
       ipcRenderer.removeListener('chat:stream-error', errorHandler)
       ipcRenderer.removeListener('chat:stream-end', endHandler)
       onEnd()
     }
 
     ipcRenderer.on('chat:stream-chunk', chunkHandler)
+    ipcRenderer.on('chat:stream-chunk-batch', chunkBatchHandler)
     ipcRenderer.on('chat:stream-error', errorHandler)
     ipcRenderer.on('chat:stream-end', endHandler)
 
