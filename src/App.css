@@ -654,7 +654,8 @@ body {
 .message--assistant {
   align-self: flex-start;
   width: min(100%, 720px);
-  max-width: calc(100% - 32px);
+  max-width: calc(100% - 48px - 68px);
+  margin-left: 48px;
 }
 
 .message__label {
